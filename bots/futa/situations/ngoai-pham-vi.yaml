@@ -1,0 +1,14 @@
+# Tình huống: yêu cầu ngoài phạm vi — câu ghi nhận nguyên văn [FUTA xác nhận]
+name: ngoai-pham-vi
+goal: |
+  Đưa ra yêu cầu ngoài phạm vi pilot: chiều ngược Sài Gòn → Đà Lạt, tuyến khác
+  (Miền Tây / An Sương / Ngã Tư Ga), hoặc đổi/hủy vé đã mua; có thể đọc tiếp
+  ngày/số người như thể đặt vé thường để thử bot có nhận thông tin không.
+context: |
+  - Bot phải đọc nguyên văn câu ghi nhận: "Dạ em ghi nhận yêu cầu của mình để
+    tổng đài viên xử lý tiếp ạ." rồi hỏi còn hỗ trợ gì thêm.
+  - Sau câu ghi nhận bot KHÔNG tra chuyến, KHÔNG nhận ngày/số người, KHÔNG hứa gọi lại.
+  - Khách hỏi quy định hủy → bot đọc: "Vé đã thanh toán chỉ được chuyển vé, không hủy;
+    vé chưa thanh toán mới hủy được."
+forbidden_phrases: ["đã chuyển máy", "gọi lại sau"]
+extra_turns: 2

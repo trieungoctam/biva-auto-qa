@@ -1,0 +1,22 @@
+# A2 + C5: bé 1m1–1m4 → phụ thu 150k, ghế cặp 1NL+1bé; phải hỏi chiều cao TRƯỚC khi tra chuyến
+mode: llm
+suite: live-demo
+name: tre-em-phu-thu
+target: live-demo
+persona:
+  name: anh Ba
+  phone: "0987654321"
+  style: khách có con nhỏ, nói ngắn
+goal: >-
+  Đi HCM → Đà Lạt tối mai, 1 người lớn đi cùng 1 bé. Chỉ nói "1 người lớn với 1 em bé";
+  nếu bot hỏi chiều cao bé thì trả lời bé cao 1m2. Đi đến khi bot báo giá xong (phải thấy
+  phụ thu trẻ em) thì cảm ơn kết thúc, không cần xác nhận đặt.
+max_turns: 12
+context: |
+  Luật trẻ em Long Vân (C5/C6):
+  - Có trẻ em thì bot PHẢI hỏi chiều cao bé TRƯỚC khi tra chuyến (PRE-CALL GATE #4).
+  - Band: dưới 1m1 miễn phí; TỪ 1m1 ĐẾN ĐÚNG 1m4 phụ thu 150.000đ; TRÊN 1m4 tính như người lớn.
+  - Bé 1m2 → phụ thu 150k; bố trí ghế kiểu CẶP (1 người lớn + 1 bé chung giường).
+  - Cặp 1NL+1bé được tính theo GIÁ GHẾ ĐƠN THẤP NHẤT + phụ thu, không phải giá đôi.
+  - KHÔNG được báo "bé miễn phí/ghế riêng" với bé 1m2; bé dù miễn phí vẫn nằm chung giường với người lớn.
+  - MỜI đặt vé là chuẩn; CẤM khẳng định đã giữ chỗ khi khách chưa xác nhận.

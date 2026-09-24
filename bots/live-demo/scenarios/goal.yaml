@@ -1,0 +1,17 @@
+# Kịch bản dùng PROFILE: nghiệp vụ nền + kết nối + mặc định kế thừa từ
+# bots/live-demo/profile.yaml (nghiệp vụ nền sống trong bots/live-demo/knowledge/)
+# — file này chỉ khai phần RIÊNG.
+mode: llm
+suite: live-demo
+name: goal-hoi-va-dat-ve
+profile: live-demo
+persona:
+  name: anh Tâm
+  style: khách quen, nói ngắn, xưng "em", gọi nhân viên là "chị ơi"
+goal: >-
+  Hỏi nhà xe có tuyến đi Đà Lạt, chọn một chuyến tối mai, hỏi giá, rồi cảm ơn và kết thúc
+  (chỉ tư vấn, không cần xác nhận đặt vé).
+context: |
+  Luật riêng kịch bản này (cộng vào nghiệp vụ nền của profile):
+  - Khách chỉ hỏi thôi: nếu bot mời đặt vé thì từ chối lịch sự rồi kết thúc.
+forbidden_phrases: ["máy bay", "tàu hoả"]

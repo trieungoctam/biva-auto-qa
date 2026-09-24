@@ -1,0 +1,48 @@
+# Whitelist target — driver chỉ bắn tới host khai báo tường minh ở đây.
+# Kịch bản chỉ được tham chiếu target theo TÊN; URL luôn ghép từ config,
+# không bao giờ từ kịch bản (chống bắn nhầm host lạ, chống chạm đường booking).
+# Thêm bot mới: copy một khối, đổi name/base_url/path/bot_id (xem bots/TEMPLATE-bot.md).
+
+targets:
+  - name: mock
+    kind: mock
+
+  - name: live-demo
+    kind: sse_chat
+    base_url: https://live-demo.agenticai.pro.vn
+    init_path: /api/conversation/init
+    chat_path: /chat/stream
+    bot_id: 8119
+    customer_phone: "0987654321"
+    request_from: auto-qa
+    timeout_s: 60
+    auth_token_env: AUTOQA_LIVE_DEMO_TOKEN   # Bearer cho GET /api/conversations*
+  - name: futa
+    kind: sse_chat
+    base_url: https://live-demo.agenticai.pro.vn
+    init_path: /api/conversation/init
+    chat_path: /chat/stream
+    bot_id: 8292              # bot test FUTA (pilot ĐL → Miền Đông Mới)
+    customer_phone: "0987654321"
+    request_from: auto-qa
+    timeout_s: 60
+    auth_token_env: AUTOQA_LIVE_DEMO_TOKEN   # dùng chung token platform live-demo
+
+
+
+# LLM cho kịch bản mode llm — duy nhất vai CALLER (khách). Provider: openai | gemini
+# | custom (khai base_url + api_key_env).
+#
+# Model reasoning (gpt-5.4-mini…): bắt buộc reasoning_effort — none = nhanh nhất
+# (đúng pattern biva-sale-bot dùng cho tư vấn), low = cẩn thận.
+# Có reasoning_effort thì tự bỏ temperature (dòng này từ chối temperature tuỳ chỉnh).
+
+llm:                      # cấu hình chung (fallback cho llm_caller)
+  provider: gemini
+  model: gemini-3.1-flash-lite   # key có sẵn trong .env
+  temperature: 0.3
+
+llm_caller:               # vai KHÁCH — giống não bot Long Vân đang dùng
+  provider: gemini
+  model: gemini-3.1-flash-lite
+  temperature: 0.5        # thoại tự nhiên cần nhiệt hơn

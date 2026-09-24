@@ -1,0 +1,14 @@
+suite: live-demo
+name: smoke-hoi-tuyen
+target: live-demo
+persona:
+  name: khách thử nghiệm
+  phone: "0987654321"
+forbidden_phrases: ["máy bay", "tàu hoả"]   # không mời khách đi phương tiện khác
+turns:
+  - say: "A lô, cho em hỏi nhà xe có tuyến nào đi Đà Lạt không ạ?"
+    expect: {tag: CHAT}
+  - say: "Tối mai khoảng 11 giờ đêm có chuyến nào không?"
+    expect: {tag: CHAT}
+  - say: "Giá vé khoảng bao nhiêu vậy ạ?"
+    expect: {tag: CHAT}

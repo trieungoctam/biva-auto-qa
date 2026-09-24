@@ -1,0 +1,24 @@
+# A-flow chuẩn 10 bước — KHÁCH CŨ đặt 1 vé ĐL → MĐM.
+# Kết thúc TRƯỚC lời đồng ý cuối (nghe bản xác nhận xong hỏi thêm rồi cảm ơn)
+# để không kích hoạt webhook tạo vé thật trên DEV (GĐ-01).
+mode: llm
+suite: futa
+name: goal-dat-ve-chuan
+target: futa
+persona:
+  name: chị Lan
+  style: khách quen miền Trung, nói ngắn, xưng "mình", gọi bot là "em"
+goal: >-
+  Đặt một vé giường nằm từ Đà Lạt về Bến xe Miền Đông Mới sáng mai: hỏi chuyến
+  khung 8-9 giờ, chọn chuyến bot đề xuất, chọn ghế bot gợi ý, cung cấp điểm đón
+  Bến xe Đà Lạt, nghe giá và bản xác nhận. Sau khi nghe bản xác nhận KHÔNG nói
+  "đồng ý/xác nhận đặt" — hỏi thêm một câu về giờ có mặt rồi cảm ơn kết thúc.
+context: |
+  Kỳ vọng khi review transcript (theo bots/futa/knowledge/business.md):
+  - Bot hỏi điểm đón/trả TRƯỚC khi tra chuyến; hỏi "có em bé đi cùng không".
+  - Giờ đọc đúng nguyên văn hệ thống (không làm tròn); giá đọc MỘT lần ở lượt ghế.
+  - Bản xác nhận đọc đủ tuyến/giờ/ngày/giường/điểm đón trả, KHÔNG có giá.
+  - Dặn có mặt trước 15 phút tại Bến xe Đà Lạt; dặn hành lý dưới 20kg, không thú cưng.
+  - Thanh toán nói có điều kiện, KHÔNG nói "gửi về Zalo".
+max_turns: 16
+forbidden_phrases: ["đã giữ ghế", "đã đặt xong", "gửi về zalo", "hết vé"]

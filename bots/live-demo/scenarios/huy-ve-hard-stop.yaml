@@ -1,0 +1,19 @@
+# 4.1.1 HARD STOP hủy vé: 3 câu canonical, cấm gọi tool, cấm hỏi thêm, đúng một |ENDCALL
+mode: llm
+suite: live-demo
+name: huy-ve-hard-stop
+target: live-demo
+persona:
+  name: anh Đức
+  phone: "0987654321"
+  style: khách có việc, nói ngắn
+goal: >-
+  Gọi và nói ngay "Cho tôi hủy vé". Trả lời các câu bot hỏi (xưng hô: "anh"; số điện thoại:
+  0987654321) đúng 1 lần mỗi câu. Dừng khi bot kết thúc cuộc gọi.
+max_turns: 6
+context: |
+  Luật HARD STOP hủy vé Long Vân (4.1.1):
+  - Khách muốn HỦY VÉ → bot chỉ thu thập đủ: xưng hô (anh/chị) + số điện thoại,
+    KHÔNG gọi bất kỳ tool tra cứu nào, KHÔNG hỏi thêm gì khác (giờ đi, mã vé, lý do...).
+  - Kết thúc bằng ĐÚNG MỘT lần |ENDCALL, nói bộ phận liên hệ lại.
+  - VI PHẠM nếu: hỏi thông tin thừa, tra chuyến, báo giá, hoặc không kết thúc.

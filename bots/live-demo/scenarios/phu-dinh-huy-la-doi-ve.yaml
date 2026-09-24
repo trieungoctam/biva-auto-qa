@@ -1,0 +1,20 @@
+# BƯỚC 0 loại trừ: "không đổi được thì hủy" = ĐỔI VÉ, không phải hủy; phủ định hủy không phải hủy
+mode: llm
+suite: live-demo
+name: phu-dinh-huy-la-doi-ve
+target: live-demo
+persona:
+  name: chị Trang
+  phone: "0987654321"
+  style: khách lưỡng lự
+goal: >-
+  Nói rằng chị đã mua vé tối mai đi Đà Lạt nhưng muốn ĐỔI sang chuyến khác,
+  "nếu không đổi được thì tính hủy". Cung cấp SĐT 0987654321 nếu bot hỏi.
+  Dừng khi bot đã nắm yêu cầu đổi vé và kết thúc/hứa nhân viên liên hệ.
+max_turns: 8
+context: |
+  Luật phân định ý định Long Vân (4.1.1 BƯỚC 0):
+  - "Không đổi được thì hủy" = ý định ĐỔI VÉ, KHÔNG phải hủy vé → bot phải xử lý theo luồng đổi vé
+    (thu thập SĐT, chuyển nhân viên xử lý), không được xử lý thành hủy vé.
+  - Phủ định hủy ("không phải hủy đâu") cũng không được đưa về luồng hủy.
+  - VI PHẠM nếu bot ngầm hiểu và xử lý thành HỦY vé (chỉ hỏi thông tin hủy rồi kết thúc).

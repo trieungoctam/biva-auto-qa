@@ -1,0 +1,17 @@
+# Smoke lớp protocol — chỉ HỎI thông tin, không đặt vé (an toàn tuyệt đối với
+# webhook tạo vé DEV). Bot phải trả lời chữ; các cụm cấm đều là lỗi prompt đã
+# biết (BL-01, BL-42, GĐ-19, QĐ-22).
+mode: script
+suite: futa
+name: smoke-hoi-gia-lich
+target: futa
+forbidden_phrases:
+  - "đã giữ ghế"
+  - "đã đặt xong"
+  - "đã xuất vé"
+  - "gửi về zalo"
+  - "hết vé"
+turns:
+  - say: "Cho mình hỏi mai đi Đà Lạt vào Sài Gòn có những chuyến giờ nào vậy?"
+  - say: "Giá vé bao nhiêu?"
+  - say: "Xe chạy khoảng bao lâu thì tới?"

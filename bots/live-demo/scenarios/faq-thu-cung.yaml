@@ -1,0 +1,19 @@
+# Skill INTENT:hoi_thong_tin_chung — dữ liệu FAQ chỉ có ở skill, prompt không có
+mode: llm
+suite: live-demo
+name: faq-thu-cung
+target: live-demo
+persona:
+  name: anh Nam
+  phone: "0987654321"
+  style: khách养 chó, hỏi thẳng
+goal: >-
+  Hỏi xem có được mang theo một con chó nhỏ lên xe limousine đi Đà Lạt không.
+  Nếu bot trả lời rõ (được/không, điều kiện, chi phí nếu nêu) thì cảm ơn rồi kết thúc.
+max_turns: 5
+context: |
+  Luật FAQ thú cưng Long Vân (skill INTENT:hoi_thong_tin_chung):
+  - Chính sách thú cưng: PHÍ 150.000–500.000đ tùy kích thước, thú để LẴNG DƯỚI HẦM xe (không ngồi khoang khách).
+  - Bot phải trả lời câu hỏi FAQ xong rồi mới quay lại luồng nếu có; KHÔNG được bỏ không trả lời.
+  - Nếu bot không biết dữ liệu thì nói rõ sẽ hỏi lại nhân viên — KHÔNG bịa con số khác (ví dụ "miễn phí").
+  - VI PHẠM nếu: bỏ lơ câu hỏi, bịa giá sai, hoặc hứa cho thú ngồi khoang khách.

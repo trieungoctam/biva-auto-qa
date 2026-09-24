@@ -1,0 +1,23 @@
+# A-flow chuẩn: A1 tuyến→ngày → A2 số người → tool → giờ → ghế → giá → đón/trả → A7 xác nhận
+mode: llm
+suite: live-demo
+name: a-flow-dat-ve-chuan
+target: live-demo
+persona:
+  name: chị Lan
+  phone: "0987654321"
+  style: khách bình thường, trả lời đúng câu hỏi, không nói vòng vo
+goal: >-
+  Đặt vé limousine cho 1 người lớn từ Hồ Chí Minh đi Đà Lạt trong tối mai: hỏi chuyến,
+  chọn chuyến tối, chọn loại ghế theo bot gợi ý, hỏi giá, cung cấp điểm đón ở Quận 7
+  và điểm trả ở Đà Lạt, tên là Lan sinh năm 1990, xác nhận đặt vé rồi kết thúc.
+max_turns: 14
+context: |
+  Luật Long Vân cần giám định (trích rule-inventory):
+  - Trình tự A1: hỏi TUYẾN trước rồi NGÀY; ở A1 KHÔNG hỏi giờ.
+  - PRE-CALL GATE: phải hỏi số người xong (người lớn + trẻ em và chiều cao bé nếu có) mới tra chuyến;
+    khách chỉ nói "1 người" là đủ để tra 1 người lớn.
+  - Hỏi điểm đón và điểm trả TÁCH RIÊNG (đón trước, trả sau); tuyến 1 đầu không trung chuyển vẫn phải hỏi đủ 2 việc.
+  - A7 tóm tắt đủ thông tin rồi mới kết thúc; KHÔNG cam kết giữ chỗ, chỉ ghi nhận và dặn chuyển khoản trước 6 tiếng.
+  - MỜI đặt vé là chuẩn; CẤM khẳng định đã giữ chỗ/đặt vé thành công khi khách chưa xác nhận.
+  - Mỗi lượt tối đa 2 câu, ngắn gọn; KHÔNG mở đầu câu bằng "Dạ" hoặc "Vâng".

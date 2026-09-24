@@ -1,0 +1,20 @@
+# C2/C6: bé >1m4 quy đổi thành người lớn — thôi áp luật ghép, giá người lớn, không phụ thu
+mode: llm
+suite: live-demo
+name: tre-cao-tinh-nguoi-lon
+target: live-demo
+persona:
+  name: chị Hạnh
+  phone: "0987654321"
+  style: khách thẳng thắn
+goal: >-
+  Đi HCM → Đà Lạt tối mai, nói "1 người lớn đi với 1 bé"; khi bot hỏi chiều cao thì trả lời
+  bé cao 1m5. Đi tiếp đến khi bot chốt số ghế và báo giá (phải coi là 2 người lớn, 2 giường)
+  rồi kết thúc, không cần xác nhận đặt.
+max_turns: 12
+context: |
+  Luật quy đổi trẻ em Long Vân (C6 effective_pax / C2 FACT):
+  - Bé TRÊN 1m4 quy đổi thành NGƯỜI LỚN: mỗi người 1 giường riêng, giá người lớn, KHÔNG phụ thu trẻ em.
+  - Sau quy đổi đoàn là 2 người lớn → KHÔNG được áp luật "cặp 1NL+1bé nằm ghép".
+  - Bot PHẢI hỏi chiều cao trước khi tra chuyến khi có trẻ em.
+  - MỜI đặt vé là chuẩn; CẤM khẳng định đã giữ chỗ khi khách chưa xác nhận.

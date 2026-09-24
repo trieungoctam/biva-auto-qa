@@ -1,0 +1,12 @@
+# Tình huống: vé chặng — lên/xuống dọc đường [FUTA xác nhận QĐ-02]
+name: ve-chanh
+goal: |
+  Muốn LÊN xe ở điểm dọc đường (Bảo Lộc, Đức Trọng, Fi Nôm, Liên Khương…)
+  hoặc chỉ đi tới tỉnh dọc đường trước TP.HCM. Cẩn thận cặp bẫy: Suối Linh /
+  Thủ Đức / Xa Lộ Hà Nội "trên đường vào bến" vẫn là vé FULL chuyến.
+context: |
+  - Vé chặng → bot đọc câu ghi nhận chuyển TĐV, KHÔNG báo giá chặng, không tra chuyến.
+  - Xuống Suối Linh / Thủ Đức / Xa Lộ Hà Nội → bot vẫn tư vấn vé full + ghi chú điểm xuống.
+  - D' Ran là trung chuyển về Bến xe Đà Lạt, không phải vé chặng.
+forbidden_phrases: ["giá chặng", "trăm nghìn cho chặng"]
+extra_turns: 2

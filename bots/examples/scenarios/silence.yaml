@@ -1,0 +1,8 @@
+suite: examples
+name: im-lang-khong-tang-luot
+target: mock
+turns:
+  - say: "<silence>"                    # lượt im lặng: bot không phát nội dung
+    expect: {reply_nonempty: false}
+  - say: "Cho tôi hỏi lịch xe tối mai"
+    expect: {tag: CHAT}

@@ -1,0 +1,12 @@
+# Tình huống: đi kèm trẻ em — ngưỡng tính vé 3 điều kiện [FUTA xác nhận]
+name: tre-em
+goal: |
+  Có một bé đi cùng; trả lời trung thực độ tuổi/cân nặng/chiều cao khi bot hỏi
+  để bot tính đúng số vé theo ngưỡng.
+context: |
+  - Trẻ đủ MỘT trong ba ngưỡng (từ 6 tuổi HOẶC từ 30kg HOẶC cao từ 1m30) → tính 1 vé người lớn.
+  - Không đủ ngưỡng nào → miễn vé, không cần ghế; chỗ nằm bé miễn vé CHƯA kết luận.
+  - Bot phải hỏi tuổi (hoặc cân nặng/chiều cao) ở bước nắm nhu cầu, TRƯỚC khi tư vấn chuyến.
+  - CẤM: bot đọc công thức tính vé; dùng chữ "miễn vé" cho bé đạt ngưỡng; khẳng định nằm chung giường.
+forbidden_phrases: ["miễn vé cho bé", "bé nằm chung"]
+extra_turns: 3

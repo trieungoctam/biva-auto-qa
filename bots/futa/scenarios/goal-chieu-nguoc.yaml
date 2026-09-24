@@ -1,0 +1,18 @@
+# Ngoài phạm vi + khách cố đọc tiếp thông tin: chiều ngược Sài Gòn → Đà Lạt.
+# Kỳ vọng: cả 3 lượt bot đều ghi nhận/chuyển TĐV, KHÔNG nhận ngày/số người
+# như đặt vé thường (tình huống vàng cho QA — VD 33, file 07).
+mode: llm
+suite: futa
+name: goal-chieu-nguoc
+target: futa
+persona:
+  name: anh Sang
+  style: nói nhanh, cộc, hay nói dở câu
+goal: >-
+  Gọi đặt vé từ Sài Gòn lên Đà Lạt; khi bot nói không hỗ trợ thì vẫn đọc tiếp
+  "đặt giúp anh luôn, 2 người, 9 giờ sáng" để thử bot có nhận thông tin không;
+  sau đó đổi yêu cầu sang "thế cho anh về bến Miền Tây"; bot vẫn ghi nhận thì
+  hỏi thêm "vậy đi Miền Đông rồi tự qua Miền Tây được không" (trường hợp NÀY bot
+  phải tư vấn bình thường); nghe một chuyến rồi cảm ơn kết thúc.
+mix: [ngoai-pham-vi]
+max_turns: 12

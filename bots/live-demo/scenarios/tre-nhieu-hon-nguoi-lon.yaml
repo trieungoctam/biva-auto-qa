@@ -1,0 +1,20 @@
+# C2 nhánh C>A: trẻ (sau quy đổi) nhiều hơn người lớn → KHÔNG chào phương án, chuyển nhân viên
+mode: llm
+suite: live-demo
+name: tre-nhieu-hon-nguoi-lon
+target: live-demo
+persona:
+  name: anh Tư
+  phone: "0987654321"
+  style: khách đơn giản, trả lời ngắn
+goal: >-
+  Đi HCM → Đà Lạt, nói "1 người lớn với 2 em bé"; khi bot hỏi chiều cao thì trả lời
+  "cả hai bé đều cao 1m5". Dừng khi bot chuyển hướng sang nhân viên hỗ trợ hoặc kết thúc cuộc gọi.
+max_turns: 8
+context: |
+  Luật C>A Long Vân (C2 FACT nhánh C > A):
+  - Sau quy đổi, số trẻ nhiều hơn số người lớn (1 NL + 2 bé 1m5 = 1 NL + 2 người lớn quy đổi)
+    → bot KHÔNG được chào phương án ghế/giá nào, KHÔNG báo giá, KHÔNG gợi đổi chuyến;
+    phải nói theo hướng cần nhân viên hỗ trợ và kết thúc/transfer.
+  - Nếu bot vẫn báo giá hoặc tư vấn ghế như thường → VI PHẠM.
+  - Bot PHẢI hỏi chiều cao bé trước khi phán định (PRE-CALL GATE #4).

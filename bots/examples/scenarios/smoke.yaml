@@ -1,0 +1,17 @@
+# Suite tự kiểm tra harness (target mock — không mạng, không tốn tiền).
+suite: examples
+name: smoke-dat-ve
+target: mock
+persona:
+  name: anh Tam
+  phone: "0987654321"
+forbidden_phrases: ["máy bay", "tàu hoả"]   # bài học Thiện Thành: không mời khách đi phương tiện khác
+turns:
+  - say: "A lô, tối mai có xe đi Đà Lạt không ạ?"
+    expect: {tag: CHAT}
+  - say: "Giường nằm giá bao nhiêu?"
+    expect: {tag: CHAT}
+  - say: "Đặt giúp tôi một vé"
+    expect: {tag: CHAT}
+  - say: "Được em"
+    expect: {tag: ENDCALL}

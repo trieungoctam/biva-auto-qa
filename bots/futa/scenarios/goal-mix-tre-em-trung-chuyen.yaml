@@ -1,0 +1,17 @@
+# MIX: đặt vé 2 người lớn + bé 5 tuổi (dưới cả 3 ngưỡng → tổng 2 vé) + cần
+# trung chuyển về bệnh viện Chợ Rẫy (thuộc 13 BV trung chuyển MĐM).
+# Kết thúc trước lời đồng ý cuối — không kích hoạt đặt vé thật trên DEV.
+mode: llm
+suite: futa
+name: goal-mix-tre-em-trung-chuyen
+target: futa
+persona:
+  name: anh Tâm
+  style: nói ngắn, thẳng, xưng "mình"
+goal: >-
+  Đặt vé cho hai người lớn và một bé 5 tuổi (18kg, 1m10) đi Đà Lạt về Bến xe
+  Miền Đông Mới tối nay: hỏi chuyến, chọn ghế 2 giường cạnh nhau cùng tầng,
+  nhờ trung chuyển tại TP.HCM về bệnh viện Chợ Rẫy. Nghe bản xác nhận xong hỏi
+  thêm một câu rồi cảm ơn kết thúc, KHÔNG nói "đồng ý đặt".
+mix: [tre-em, trung-chuyen]
+max_turns: 18

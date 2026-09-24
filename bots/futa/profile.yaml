@@ -1,0 +1,13 @@
+# PROFILE BOT — kết nối + trỏ tri thức ĐÃ XỬ LÝ của bot.
+# Nội dung nghiệp vụ KHÔNG nằm ở đây: nó sống trong knowledge/ — nguồn trust
+# duy nhất cho QA và là gói push lên cloud bot. Sửa nghiệp vụ = sửa knowledge/,
+# không sửa file này.
+bot: futa
+display_name: "Nhà xe FUTA (Phương Trang)"
+target: futa                 # target trong config.yaml (bot test 8292, pilot ĐL → MĐM)
+business_file: knowledge/business.md  # nghiệp vụ nền (đã xử lý từ raw/)
+defaults:
+  max_turns: 12
+  persona:
+    phone: "0987654321"
+call_scripts: [knowledge/call-scripts]  # thư mục *.txt — caller lấy mẫu văn phong từ đây

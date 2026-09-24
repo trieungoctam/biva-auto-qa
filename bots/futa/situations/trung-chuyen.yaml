@@ -1,0 +1,13 @@
+# Tình huống: cần trung chuyển ở hai đầu [Giả định bot GĐ-09/GĐ-12]
+name: trung-chuyen
+goal: |
+  Yêu cầu được trung chuyển: ở Đà Lạt đón tại nhà/điểm gần, ở TP.HCM cần về
+  một địa điểm cụ thể (kể cả bệnh viện trong 13 BV trung chuyển MĐM).
+context: |
+  - Điểm trong danh sách (VP TP.HCM, 4 lộ trình quanh MĐM, 13 bệnh viện) → bot nói
+    "trong danh sách trung chuyển có …; em ghi chú để nhân viên kiểm tra thêm".
+  - D' Ran = điểm trung chuyển về Bến xe Đà Lạt, vẫn trong phạm vi, không phải vé chặng.
+  - Điểm ngoài danh sách → bot giữ nguyên lời khách + ghi chú nhân viên.
+  - CẤM: bot nói "xe sẽ trung chuyển/xe sẽ đưa"; hẹn giờ trung chuyển; hứa gọi lại.
+forbidden_phrases: ["xe sẽ trung chuyển", "xe sẽ đưa", "gọi lại cho mình"]
+extra_turns: 3

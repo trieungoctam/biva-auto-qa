@@ -1,0 +1,23 @@
+# Kịch bản goal-driven: caller LLM sinh lời khách từng lượt (không turns cố định).
+# Cần mục 'llm' trong config.yaml + biến môi trường OPENAI_API_KEY.
+mode: llm
+suite: live-demo
+name: goal-dat-ve-tu-nhien
+target: live-demo
+persona:
+  name: anh Tâm
+  phone: "0987654321"
+  style: khách quen, nói ngắn, xưng "em", gọi nhân viên là "chị ơi"
+goal: >-
+  Hỏi lịch xe HCM đi Đà Lạt tối mai, chọn chuyến khuya nhất còn ghế, hỏi giá giường nằm,
+  xác nhận đặt một vé rồi kết thúc cuộc gọi.
+max_turns: 8
+context: |
+  Quy tắc nghiệp vụ cần giám định:
+  - Tổng đài chỉ tư vấn; đặt vé thật xảy ra sau cuộc gọi.
+  - Hết ghế phải nói rõ, không tự động đổi hạng ghế.
+  - Đọc giờ đầy đủ kiểu "hai mươi ba giờ ba mươi phút", không đọc "hai ba ba mươi".
+  - Không giới thiệu phương tiện khác (máy bay, tàu hoả) khi hết vé.
+# Transcript cuộc gọi THẬT để caller bắt chước văn phong (path .txt hoặc text inline).
+# Sẽ bổ sung khi có call script thật:
+call_scripts: []

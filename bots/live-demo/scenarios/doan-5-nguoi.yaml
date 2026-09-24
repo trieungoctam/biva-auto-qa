@@ -1,0 +1,19 @@
+# C1/C4: đoàn ≥5 người → chuyển nhân viên NGAY, không chạy tiếp luồng đặt vé
+mode: llm
+suite: live-demo
+name: doan-5-nguoi-chuyen-nhan-vien
+target: live-demo
+persona:
+  name: anh Khoa
+  phone: "0987654321"
+  style: khách đi đoàn
+goal: >-
+  Hỏi vé HCM → Đà Lạt chủ nhật này cho "5 người lớn". Nếu bot hỏi thêm thông tin đặt vé
+  (giờ, ghế, giá...) thay vì chuyển nhân viên thì trả lời tối thiểu thêm 1 lượt rồi dừng.
+max_turns: 6
+context: |
+  Luật đoàn lớn Long Vân (build_party_size_gate_hint + PARTY_SIZE_HANDOFF_THRESHOLD = 5):
+  - Đoàn từ 5 người trở lên → bot PHẢI chuyển cho nhân viên hỗ trợ ngay, KHÔNG tiếp tục
+    hỏi giờ/giá/ghế/điểm đón như luồng đặt vé thường.
+  - Bot vẫn trả lời lịch sự, có thể xin số để nhân viên liên hệ.
+  - Nếu bot cứ đi tiếp luồng đặt vé (hỏi khung giờ, loại ghế, báo giá) → VI PHẠM.

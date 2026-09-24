@@ -1,0 +1,22 @@
+# Ngưỡng 5 vé qua trẻ em: 4 người lớn + bé 7 tuổi (đạt ngưỡng tuổi → tính vé)
+# = 5 vé → bot PHẢI đọc câu ghi nhận chuyển TĐV, không tra chuyến.
+# Lỗi hay gặp (file 07): đếm bé 7 tuổi miễn vé ra 4 vé rồi tư vấn tiếp.
+mode: llm
+suite: futa
+name: goal-nguong-5-ve
+target: futa
+persona:
+  name: cô Hạnh
+  style: nói chậm, hay nhắc lại, xưng "cô", gọi bot là "con"
+goal: >-
+  Đặt vé cho gia đình đi Đà Lạt về Sài Gòn: bốn người lớn và cháu bé 7 tuổi,
+  muốn đi chuyến tối mai. Trả lời đủ thông tin bot hỏi; nếu bot vẫn tư vấn
+  chuyến thì đi tiếp nghe cho tới lúc bot chốt, rồi hỏi lại "thế mấy vé của
+  cô đặt được không con?" cho rõ đáp án; cuối cùng cảm ơn kết thúc.
+context: |
+  Kỳ vọng khi review transcript:
+  - Bot hỏi tuổi bé NGAY ở bước nắm nhu cầu; bé 7 tuổi đạt ngưỡng (từ 6 tuổi) → tính vé.
+  - Tổng 5 vé → bot đọc nguyên văn câu ghi nhận, KHÔNG tra chuyến, KHÔNG báo giá.
+  - CẤM: đếm bé miễn vé; tự tách nhóm 2 đơn; nói "đã chuyển máy" hay hứa gọi lại.
+max_turns: 10
+forbidden_phrases: ["đã chuyển máy"]

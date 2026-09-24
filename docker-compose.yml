@@ -1,0 +1,15 @@
+# auto-qa web UI — deploy VPS (PLAN-UI-DEPLOY.md)
+# Chuẩn bị: đặt AUTOQA_UI_KEY vào .env (biến quản trị riêng của UI) + các key LLM/token target.
+# Chạy:     docker compose up -d --build   →  http://<vps>:8788
+# HTTPS:    thêm reverse proxy (caddy/nginx) trỏ tới port 8788 khi expose ra ngoài.
+services:
+  autoqa:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8788:8788"
+    env_file: .env            # GEMINI_API_KEY, AUTOQA_LIVE_DEMO_TOKEN, AUTOQA_UI_KEY…
+    volumes:
+      - ./runs:/app/runs      # lịch sử + INDEX.md + báo cáo (rw — sống sót qua image rebuild)
+      - ./bots:/app/bots:ro   # knowledge/scenarios read-only; raw/ bị chặn ở app layer + dockerignore
+      - ./config.yaml:/app/config.yaml:ro

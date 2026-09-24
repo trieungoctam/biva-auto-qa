@@ -1,0 +1,20 @@
+# 3.8/3.9 + C4 clarify_route: tuyến không phục vụ → không bịa "có/chưa có chuyến" khi chưa tra
+mode: llm
+suite: live-demo
+name: tuyen-khong-phuc-vu
+target: live-demo
+persona:
+  name: chị Mai
+  phone: "0987654321"
+  style: khách hỏi nhanh
+goal: >-
+  Hỏi xem nhà xe có tuyến đi Phan Thiết không. Dừng khi bot đã trả lời rõ
+  (có phục vụ hoặc không phục vụ) và kết thúc/đề nghị hỗ trợ thêm.
+max_turns: 5
+context: |
+  Luật tuyến Long Vân (mục 3.8/3.9 + tool clarify_route):
+  - Nhà xe chỉ khai thác các tuyến HCM/BMT/Đà Lạt; Phan Thiết KHÔNG thuộc tuyến phục vụ.
+  - Khi khách hỏi điểm lạ: bot được hỏi lại để làm rõ (clarify), KHÔNG được tự phán
+    "có chuyến lúc X giá Y" khi không có dữ liệu; cũng KHÔNG được nói cụ thể giờ/giá bịa.
+  - Câu phủ định phải có căn cứ; không có căn cứ thì nói rõ hiện không phục vụ tuyến này.
+  - Trả lời lịch sự, có thể hướng dẫn phương án khác (không bịa giờ xe khác hãng).
