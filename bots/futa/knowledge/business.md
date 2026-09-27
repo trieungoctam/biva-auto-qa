@@ -103,3 +103,5 @@ Xe Limousine 34 giường nằm 2 tầng (A = tầng dưới, B = tầng trên),
 - [Dữ liệu DEV] 15/55 chuyến mỗi ngày 404 chi tiết (05:45, 08:06, 08:45, 09:37, 09:45, 10:36, 12:07, 15:30, 15:36, 15:45, 16:00, 18:00, 21:00, 22:00, 23:05) — không xem được ghế/giờ có mặt; khi chấm, lỗi này KHÔNG tính lỗi bot.
 - [Dữ liệu DEV] DEV đơn điệu: 55/55 chuyến cùng giá 300.000đ, cùng Limousine(34), gần như trống ghế → không test được giá khác nhau/nhiều loại xe/chuyến gần đầy.
 - [Giả định bot] Kết quả được cache theo conversation_id → dùng số điện thoại persona khác nhau giữa các lần chạy để không dính cache cũ.
+
+- [UI test] quy tắc kiểm tra editor cloud
