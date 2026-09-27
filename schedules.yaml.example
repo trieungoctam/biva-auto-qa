@@ -1,0 +1,8 @@
+# Scheduler mẫu (mount vào /app/schedules.yaml) — đến giờ HH:MM mỗi ngày,
+# bot chạy các kịch bản nêu ra với user=scheduler, kết quả vào INDEX như run thường.
+- name: futa-nightly-smoke
+  bot: futa
+  scenarios: ["futa/smoke-hoi-gia-lich", "futa/goal-chieu-nguoc"]
+  at: "07:00"
+  calls: 1
+  concurrency: 1

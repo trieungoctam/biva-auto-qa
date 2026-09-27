@@ -44,6 +44,8 @@ class ScenarioResult:
     checks: list[Check] = field(default_factory=list)
     transcript: list[dict] = field(default_factory=list)
     error: str | None = None
+    call_index: int = 1   # call thứ mấy của kịch bản (mỗi call một conversation)
+    calls: int = 1        # tổng số calls của kịch bản trong run này
 
     @property
     def id(self) -> str:
@@ -58,6 +60,7 @@ class ScenarioResult:
             "run_id": run_id,
             "suite": self.scenario.suite,
             "scenario": self.scenario.name,
+            "call": f"{self.call_index}/{self.calls}",
             "conversation_id": self.conversation_id,
             "target": self.target_name,
             "checks": [c.to_dict() for c in self.checks],
@@ -186,7 +189,6 @@ async def run_scenario(
         return await run_goal_scenario(target, scenario, llm_caller)
     return await run_script_scenario(target, scenario, transport=transport)
 
-
 async def run_suite(
     targets: dict[str, Target],
     scenarios: list[Scenario],
@@ -198,13 +200,16 @@ async def run_suite(
     llm_caller: LlmClient | None = None,
     transport_factory=None,
     concurrency: int = 1,
+    calls: int = 1,
 ) -> list[ScenarioResult]:
-    """Chạy (song song theo `concurrency`) từng kịch bản vào target của nó.
+    """Chạy (song song theo `concurrency`) từng kịch bản vào target của nó;
+    mỗi kịch bản chạy `calls` conversation riêng (call i/N).
 
-    Mỗi kịch bản một phiên chat riêng; dòng JSONL ghi ngay khi kịch bản xong
-    (fsync dưới lock) — crash giữa chừng không mất kịch bản đã chạy.
-    Kết quả trả về theo thứ tự khai báo ban đầu.
+    Mỗi call một phiên chat riêng; dòng JSONL ghi ngay khi call xong
+    (fsync dưới lock) — crash giữa chừng không mất call đã chạy.
+    Kết quả trả về theo thứ tự khai báo, call nằm cạnh nhau.
     """
+    calls = max(1, int(calls))
     if any(s.mode == "llm" for s in scenarios) and llm_caller is None:
         raise ConfigError(
             "suite có kịch bản mode llm nhưng chưa có LLM caller "
@@ -219,15 +224,27 @@ async def run_suite(
         out_jsonl.parent.mkdir(parents=True, exist_ok=True)
         out = out_jsonl.open("a", encoding="utf-8")
 
-    async def _run_one(scenario: Scenario) -> ScenarioResult:
+    def _with_call_persona(scenario: Scenario, call_index: int) -> Scenario:
+        """Call > 1 đổi số persona (thêm suffix) để bot thấy khách khác nhau."""
+        if call_index == 1 or not scenario.persona.get("phone"):
+            return scenario
+        persona = dict(scenario.persona)
+        persona["phone"] = f"{persona['phone']}-{call_index}"
+        return Scenario(**{**scenario.__dict__, "persona": persona})
+
+    async def _run_one(scenario: Scenario, call_index: int) -> ScenarioResult:
         async with semaphore:
             target = resolve_target(targets, target_override or scenario.target)
             if bot_id is not None:
                 target = target.with_overrides(bot_id)
             transport = transport_factory() if transport_factory else None
             result = await run_scenario(
-                target, scenario, llm_caller=llm_caller, transport=transport
+                target,
+                _with_call_persona(scenario, call_index),
+                llm_caller=llm_caller,
+                transport=transport,
             )
+            result.call_index, result.calls = call_index, calls
             if out is not None:
                 async with write_lock:
                     out.write(json.dumps(result.to_row(run_id), ensure_ascii=False) + "\n")
@@ -235,9 +252,10 @@ async def run_suite(
                     os.fsync(out.fileno())
             return result
 
+    jobs = [(s, i) for s in scenarios for i in range(1, calls + 1)]
     clients = {id(llm_caller)} if llm_caller is not None else set()
     try:
-        results = await asyncio.gather(*(_run_one(s) for s in scenarios))
+        results = await asyncio.gather(*(_run_one(s, i) for s, i in jobs))
         return list(results)
     finally:
         if out is not None:

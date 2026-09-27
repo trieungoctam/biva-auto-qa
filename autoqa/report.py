@@ -33,21 +33,32 @@ def write_report(results: list[ScenarioResult], out_path: Path, *, run_id: str) 
     by_target: dict[str, list[ScenarioResult]] = defaultdict(list)
     for r in results:
         by_target[r.target_name or "?"].append(r)
+    # gom nhóm theo kịch bản khi chạy nhiều calls: hiển thị "PASS 3/5"
+    by_scenario: dict[tuple[str, str], list[ScenarioResult]] = defaultdict(list)
+    for r in results:
+        by_scenario[(r.target_name or "?", r.id)].append(r)
 
     lines: list[str] = [
         f"# Báo cáo auto-qa — run `{run_id}`",
         "",
-        f"- Số kịch bản: {len(results)} trên {len(by_target)} target",
+        f"- Số kịch bản: {len(by_scenario)} trên {len(by_target)} target"
+        + (f" · {len(results)} calls" if len(results) > len(by_scenario) else ""),
     ]
     for target_name in sorted(by_target):
         counts = Counter(r.status for r in by_target[target_name])
         summary = ", ".join(f"{s}: {counts.get(s, 0)}" for s in (FAIL, BLOCKED, "PASS"))
-        lines.append(f"- **{target_name}** ({len(by_target[target_name])} kịch bản): {summary}")
+        n_scn = sum(1 for t, _ in by_scenario if t == target_name)
+        lines.append(f"- **{target_name}** ({n_scn} kịch bản): {summary}")
 
     lines += ["", "## Kết quả chi tiết", "", "| Target | ID | Kết quả | Chi tiết |", "|---|---|---|---|"]
-    for target_name in sorted(by_target):
-        for r in by_target[target_name]:
-            lines.append(f"| {target_name} | `{r.id}` | **{r.status}** | {_detail(r)} |")
+    for (target_name, scn_id), rs in sorted(by_scenario.items()):
+        if len(rs) == 1:
+            lines.append(f"| {target_name} | `{scn_id}` | **{rs[0].status}** | {_detail(rs[0])} |")
+            continue
+        n_pass = sum(1 for r in rs if r.status == "PASS")
+        group = "PASS" if n_pass == len(rs) else ("BLOCKED" if all(r.status == "BLOCKED" for r in rs) else FAIL)
+        bad = next((r for r in rs if r.status != "PASS"), rs[0])
+        lines.append(f"| {target_name} | `{scn_id}` | **{group} {n_pass}/{len(rs)}** | {_detail(bad)} |")
 
     lines += ["", "## Quy ước kết quả"]
     lines += [f"- **{k}**: {v}" for k, v in _LEGEND.items()]
@@ -56,7 +67,9 @@ def write_report(results: list[ScenarioResult], out_path: Path, *, run_id: str) 
     if problem:
         lines += ["", "## Chi tiết các kịch bản cần xem"]
         for r in problem:
-            lines += [f"### `{r.id}` ({r.target_name}) — {r.status}", f"Conv: `{r.conversation_id}`"]
+            call = f" (call {r.call_index}/{r.calls})" if r.calls > 1 else ""
+            lines.append(f"### `{r.id}`{call} ({r.target_name}) — {r.status}")
+            lines.append(f"Conv: `{r.conversation_id}`")
             if r.error:
                 lines += [f"- Lỗi: `{r.error}`"]
             for c in r.checks:

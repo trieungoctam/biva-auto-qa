@@ -1,29 +1,30 @@
-"""Web UI mỏng cho auto-qa — chạy test từ trình duyệt, xem transcript, tra conv ID.
+"""Web UI auto-qa — sản phẩm nội bộ cho team (đợt v1: M1+M2 theo docs/TECH-DESIGN.md).
 
 Lớp MỎNG trên các hàm core có sẵn (load_suite, run_suite, write_report,
-_append_index từ cli): không đẻ logic nghiệp vụ thứ hai. Không có LLM review.
-`bots/*/raw/` không bao giờ được serve — chỉ knowledge + scenarios + profile.
+_append_index): không đẻ logic nghiệp vụ thứ hai. Không có LLM review.
+`bots/*/raw/` không bao giờ được serve.
 
-Bảo mật: env AUTOQA_UI_KEY đặt thì mọi /api/* yêu cầu header X-API-Key khớp;
-bỏ trống = chế độ dev nội bộ (chỉ chạy khi tin cậy mạng).
+Người dùng: `users.yaml` (key SHA-256, role admin/member) — thêm/xoá/xoay qua UI
+admin; admin đầu tiên bootstrap từ env AUTOQA_ADMIN_KEY. Store rỗng + không env =
+chế độ dev nội bộ (user "dev", role admin).
 
 Chạy local:  python -m autoqa ui
-Deploy:      docker compose up -d  (xem PLAN-UI-DEPLOY.md)
+Deploy:      docker compose up -d (xem docs/RUNBOOK.md)
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
-import os
 import re
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import yaml
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from autoqa.cli import _append_index
@@ -32,19 +33,35 @@ from autoqa.llm import LlmError, build_llm_caller, load_dotenv
 from autoqa.report import write_report
 from autoqa.runner import run_suite
 from autoqa.scenario import ScenarioError, load_scenario
+from autoqa.users import UserStore, UsersError
 
 _BOT_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$")
+_RUN_ID_RE = re.compile(r"^\d{8}-\d{6}(-\d+)?$")
+_VERDICTS = ("ok", "issue", "warn")
 _STATIC_DIR = Path(__file__).parent / "static"
+MAX_CALLS_PER_RUN = 20
 
 
 @dataclass
 class JobState:
     run_id: str
     bot: str
-    total: int
-    status: str = "running"  # running | done | error
+    user: str
+    total: int  # tổng calls (kịch bản × calls)
+    status: str = "queued"  # queued | running | done | error
     error: str | None = None
     results: list[dict] = field(default_factory=list)
+
+
+@dataclass
+class QueueItem:
+    state: JobState
+    scenarios: list
+    targets: dict
+    llm_caller: "LlmClient | None"
+    target_override: str | None
+    concurrency: int
+    calls: int
 
 
 def _bot_dir(bots_dir: Path, bot: str) -> Path:
@@ -56,12 +73,17 @@ def _bot_dir(bots_dir: Path, bot: str) -> Path:
     return d
 
 
-def _check_key(request) -> None:
-    key = os.environ.get("AUTOQA_UI_KEY", "")
-    if not key:
-        return  # chế độ dev nội bộ — không expose khi bỏ trống key
-    if request.headers.get("X-API-Key") != key:
-        raise HTTPException(401, "thiếu hoặc sai X-API-Key")
+def _load_bot_scenarios(bots_dir: Path, bot: str) -> dict:
+    d = _bot_dir(bots_dir, bot)
+    sdir = d / "scenarios"
+    suite: dict[str, object] = {}
+    for f in sorted(sdir.glob("*.yaml")) if sdir.is_dir() else []:
+        try:
+            s = load_scenario(f)
+            suite[s.id] = s
+        except ScenarioError:
+            continue
+    return suite
 
 
 def _read_run_rows(runs_dir: Path, run_id: str) -> list[dict]:
@@ -71,17 +93,243 @@ def _read_run_rows(runs_dir: Path, run_id: str) -> list[dict]:
     return [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines()]
 
 
-def create_app(*, bots_dir="bots", runs_dir="runs", config_path="config.yaml") -> FastAPI:
+def _review_path(runs_dir: Path, run_id: str) -> Path:
+    return runs_dir / f"{run_id}.review.yaml"
+
+
+def _load_reviews(runs_dir: Path, run_id: str) -> list[dict]:
+    p = _review_path(runs_dir, run_id)
+    if not p.is_file():
+        return []
+    data = yaml.safe_load(p.read_text(encoding="utf-8")) or []
+    return data if isinstance(data, list) else []
+
+
+def _save_reviews(runs_dir: Path, run_id: str, reviews: list[dict]) -> None:
+    _review_path(runs_dir, run_id).write_text(
+        yaml.safe_dump(reviews, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
+
+
+def _parse_index(runs_dir: Path) -> list[dict]:
+    index = runs_dir / "INDEX.md"
+    if not index.is_file():
+        return []
+    out = []
+    for line in index.read_text(encoding="utf-8").splitlines():
+        parts = [p.strip() for p in line.strip().strip("|").split("|")]
+        if len(parts) != 7 or parts[0] in ("Run", "---"):
+            continue
+        # ô kịch bản dạng: `suite/name` (2/3) → bỏ backtick, tách call
+        scn_cell = parts[2].replace("`", "").strip()
+        out.append(
+            {
+                "run": parts[0],
+                "target": parts[1],
+                "scenario": scn_cell,
+                "status": parts[3],
+                "conversation": parts[4],
+                "user": parts[5],
+                "report": parts[6],
+            }
+        )
+    return out
+
+def _sched_marker(runs_dir: Path, name: str) -> Path:
+    safe = re.sub(r"[^a-zA-Z0-9_-]", "_", name)
+    return runs_dir / f".sched-{safe}"
+
+
+def _sched_due_today(s: dict, now: datetime) -> bool:
+    """Đến giờ chạy trong ngày chưa (HH:MM)."""
+    try:
+        hh, mm = (int(x) for x in str(s.get("at", "")).split(":"))
+    except ValueError:
+        return False
+    return now.hour * 60 + now.minute >= hh * 60 + mm
+
+
+def create_app(
+    *,
+    bots_dir="bots",
+    runs_dir="runs",
+    config_path="config.yaml",
+    users_file="users.yaml",
+    schedules_file="schedules.yaml",
+) -> FastAPI:
     bots_dir, runs_dir = Path(bots_dir), Path(runs_dir)
-    app = FastAPI(title="auto-qa", docs_url=None, redoc_url=None)
+    users_file, schedules_file = Path(users_file), Path(schedules_file)
+
+    # ---------- vòng đời: queue worker + scheduler ----------
+
+    async def _run_item(item: QueueItem) -> None:
+        st = item.state
+        st.status = "running"
+        try:
+            results = await run_suite(
+                item.targets,
+                item.scenarios,
+                run_id=st.run_id,
+                target_override=item.target_override,
+                bot_id=None,
+                out_jsonl=runs_dir / f"{st.run_id}.jsonl",
+                llm_caller=item.llm_caller,
+                concurrency=item.concurrency,
+                calls=item.calls,
+            )
+            report_path = runs_dir / f"{st.run_id}.md"
+            write_report(results, report_path, run_id=st.run_id)
+            _append_index(runs_dir, st.run_id, results, report_path, user=st.user)
+            st.results = [
+                {
+                    "id": r.id,
+                    "call": f"{r.call_index}/{r.calls}" if r.calls > 1 else "",
+                    "status": r.status,
+                    "conversation_id": r.conversation_id,
+                    "target": r.target_name,
+                }
+                for r in results
+            ]
+            st.status = "done"
+        except Exception as exc:  # job nền không được giết app
+            st.status = "error"
+            st.error = f"{type(exc).__name__}: {exc}"
+        finally:
+            if item.llm_caller is not None:
+                await item.llm_caller.aclose()
+
+    async def _worker(app: FastAPI) -> None:
+        while True:
+            item: QueueItem = await app.state.queue.get()
+            app.state.pending.discard(item.state.run_id)
+            try:
+                await _run_item(item)
+            finally:
+                app.state.queue.task_done()
+
+
+    async def _scheduler(app: FastAPI) -> None:
+        """Đọc schedules.yaml mỗi phút; đến giờ → enqueue run (user=scheduler)."""
+        while True:
+            try:
+                if schedules_file.is_file():
+                    scheds = yaml.safe_load(schedules_file.read_text(encoding="utf-8")) or []
+                    now = datetime.now()
+                    for s in scheds if isinstance(scheds, list) else []:
+                        name = str(s.get("name") or s.get("bot") or "")
+                        marker = _sched_marker(runs_dir, name)
+                        ran_today = marker.is_file() and marker.read_text(encoding="utf-8").strip() == now.strftime("%Y-%m-%d")
+                        if ran_today or not _sched_due_today(s, now):
+                            continue
+                        bot = str(s.get("bot") or "")
+                        wanted = [str(w) for w in (s.get("scenarios") or [])]
+                        try:
+                            _enqueue_run(
+                                app,
+                                bot=bot,
+                                wanted=wanted,
+                                target_override=s.get("target") or None,
+                                calls=int(s.get("calls") or 1),
+                                concurrency=int(s.get("concurrency") or 1),
+                                user=str(s.get("user") or "scheduler"),
+                            )
+                        except HTTPException:
+                            pass  # schedule gõ sai — bỏ qua, chạy lại phút sau vẫn lỗi thì im
+                        else:
+                            marker.parent.mkdir(parents=True, exist_ok=True)
+                            marker.write_text(now.strftime("%Y-%m-%d"), encoding="utf-8")
+            except Exception:
+                pass  # scheduler không bao giờ chết
+            await asyncio.sleep(60)
+
+    @asynccontextmanager
+    async def _lifespan(app: FastAPI):
+        app.state.users.bootstrap()
+        app.state.worker = asyncio.create_task(_worker(app))
+        app.state.sched_task = asyncio.create_task(_scheduler(app))
+        yield
+        app.state.worker.cancel()
+        app.state.sched_task.cancel()
+
+    app = FastAPI(title="auto-qa", docs_url=None, redoc_url=None, lifespan=_lifespan)
+    app.state.users = UserStore(users_file)
     app.state.jobs: dict[str, JobState] = {}
-    app.state.run_lock = asyncio.Lock()
+    app.state.queue: asyncio.Queue = asyncio.Queue()
+    app.state.pending: set[str] = set()
+
+    # ---------- auth ----------
+
+    def _auth(request: Request) -> tuple[str, str]:
+        """Xác thực qua users.yaml; store rỗng = dev mode (dev/admin)."""
+        users: UserStore = app.state.users
+        key = request.headers.get("X-API-Key", "")
+        got = users.verify(key)
+        if got:
+            request.state.user_name, request.state.user_role = got
+            return got
+        if users.empty:
+            request.state.user_name, request.state.user_role = "dev", "admin"
+            return ("dev", "admin")
+        raise HTTPException(401, "thiếu hoặc sai X-API-Key")
+
+    def _admin(request: Request) -> tuple[str, str]:
+        name, role = _auth(request)
+        if role != "admin":
+            raise HTTPException(403, "chỉ admin")
+        return name, role
+
+    # ---------- người dùng (admin) ----------
+
+    @app.get("/api/me")
+    def me(request: Request) -> dict:
+        name, role = _auth(request)
+        return {"name": name, "role": role}
+
+    @app.get("/api/users")
+    def list_users(request: Request) -> list[dict]:
+        _admin(request)
+        return app.state.users.listing()
+
+    @app.post("/api/users")
+    def add_user(body: dict, request: Request) -> dict:
+        _admin(request)
+        try:
+            key = app.state.users.add(str(body.get("name") or ""), str(body.get("role") or "member"))
+        except UsersError as exc:
+            raise HTTPException(400, str(exc))
+        return {"name": body.get("name"), "role": body.get("role"), "key": key}  # key hiện MỘT lần
+
+    @app.post("/api/users/{name}/rotate")
+    def rotate_user(name: str, request: Request) -> dict:
+        try:
+            key = app.state.users.rotate(name)
+        except UsersError as exc:
+            raise HTTPException(404, str(exc))
+        return {"name": name, "key": key}
+
+    @app.post("/api/users/{name}/role")
+    def set_role(name: str, body: dict, request: Request) -> dict:
+        _admin(request)
+        try:
+            app.state.users.set_role(name, str(body.get("role") or ""))
+        except UsersError as exc:
+            raise HTTPException(400, str(exc))
+        return {"name": name, "role": body.get("role")}
+
+    @app.delete("/api/users/{name}")
+    def delete_user(name: str, request: Request) -> dict:
+        _admin(request)
+        try:
+            app.state.users.delete(name)
+        except UsersError as exc:
+            raise HTTPException(404, str(exc))
+        return {"ok": True}
 
     # ---------- bots (đọc) ----------
 
     @app.get("/api/bots")
     def list_bots(request: Request) -> list[dict]:
-        _check_key(request)
+        _auth(request)
         out = []
         if not bots_dir.is_dir():
             return out
@@ -90,13 +338,12 @@ def create_app(*, bots_dir="bots", runs_dir="runs", config_path="config.yaml") -
                 continue
             prof = yaml.safe_load((d / "profile.yaml").read_text(encoding="utf-8")) or {}
             n, n_llm = 0, 0
-            for f in (
-                sorted((d / "scenarios").glob("*.yaml")) if (d / "scenarios").is_dir() else []
-            ):
+            sdir = d / "scenarios"
+            for f in sorted(sdir.glob("*.yaml")) if sdir.is_dir() else []:
                 try:
                     s = load_scenario(f)
                 except ScenarioError:
-                    continue  # kịch bản lỗi hiện ở endpoint chi tiết, không chặn listing
+                    continue
                 n += 1
                 n_llm += s.mode == "llm"
             out.append(
@@ -112,9 +359,9 @@ def create_app(*, bots_dir="bots", runs_dir="runs", config_path="config.yaml") -
 
     @app.get("/api/bots/{bot}/scenarios")
     def bot_scenarios(bot: str, request: Request) -> list[dict]:
-        _check_key(request)
-        d = _bot_dir(bots_dir, bot)
-        sdir = d / "scenarios"
+        _auth(request)
+        _bot_dir(bots_dir, bot)
+        sdir = _bot_dir(bots_dir, bot) / "scenarios"
         out = []
         for f in sorted(sdir.glob("*.yaml")) if sdir.is_dir() else []:
             try:
@@ -136,118 +383,94 @@ def create_app(*, bots_dir="bots", runs_dir="runs", config_path="config.yaml") -
 
     @app.get("/api/bots/{bot}/knowledge")
     def bot_knowledge(bot: str, request: Request) -> dict:
-        _check_key(request)
+        _auth(request)
         d = _bot_dir(bots_dir, bot)
         bfile = d / "knowledge" / "business.md"
         text = bfile.read_text(encoding="utf-8") if bfile.is_file() else ""
-        return {
-            "bot": bot,
-            "business": text,
-            "has_run_warning": "CẢNH BÁO KHI CHẠY TEST" in text,
-        }
+        return {"bot": bot, "business": text, "has_run_warning": "CẢNH BÁO KHI CHẠY TEST" in text}
 
     @app.get("/api/targets")
     def targets(request: Request) -> list[dict]:
-        _check_key(request)
+        _auth(request)
         try:
             cfg = load_config(config_path)
         except (ConfigError, Exception) as exc:
             raise HTTPException(500, f"config lỗi: {exc}")
         return [{"name": t.name, "kind": t.kind} for t in cfg.values()]
 
-    # ---------- chạy test (1 run cùng lúc) ----------
+    # ---------- chạy test (queue FIFO, 1 worker) ----------
 
-    async def _run_job(state: JobState, scenarios, targets, llm_caller, target_override, concurrency):
-        try:
-            results = await run_suite(
-                targets,
-                scenarios,
-                run_id=state.run_id,
-                target_override=target_override,
-                bot_id=None,
-                out_jsonl=runs_dir / f"{state.run_id}.jsonl",
-                llm_caller=llm_caller,
-                concurrency=concurrency,
-            )
-            write_report(results, runs_dir / f"{state.run_id}.md", run_id=state.run_id)
-            _append_index(runs_dir, state.run_id, results, runs_dir / f"{state.run_id}.md")
-            state.results = [
-                {
-                    "id": r.id,
-                    "status": r.status,
-                    "conversation_id": r.conversation_id,
-                    "target": r.target_name,
-                }
-                for r in results
-            ]
-            state.status = "done"
-        except Exception as exc:  # job nền không được giết app
-            state.status = "error"
-            state.error = f"{type(exc).__name__}: {exc}"
-        finally:
-            if llm_caller is not None:
-                await llm_caller.aclose()
-
-    async def _job_then_release(state, scenarios, targets, llm_caller, target_override, concurrency):
-        try:
-            await _run_job(state, scenarios, targets, llm_caller, target_override, concurrency)
-        finally:
-            app.state.run_lock.release()
-
-    @app.post("/api/runs")
-    async def start_run(body: dict, request: Request) -> dict:
-        _check_key(request)
-        bot = str(body.get("bot") or "")
-        wanted = body.get("scenarios") or []
-        target_override = body.get("target") or None
-        concurrency = max(1, min(int(body.get("concurrency") or 1), 4))
+    def _enqueue_run(app, *, bot, wanted, target_override, calls, concurrency, user) -> JobState:
         if not isinstance(wanted, list) or not wanted:
             raise HTTPException(400, "cần danh sách 'scenarios' (id kịch bản)")
-
-        d = _bot_dir(bots_dir, bot)
-        suite: dict[str, object] = {}
-        sdir = d / "scenarios"
-        for f in sorted(sdir.glob("*.yaml")) if sdir.is_dir() else []:
-            try:
-                s = load_scenario(f)
-                suite[s.id] = s
-            except ScenarioError:
-                continue
+        calls = max(1, min(int(calls or 1), MAX_CALLS_PER_RUN))
+        concurrency = max(1, min(int(concurrency or 1), 4))
+        suite = _load_bot_scenarios(bots_dir, bot)
         unknown = [w for w in wanted if w not in suite]
         if unknown:
             raise HTTPException(400, f"không có kịch bản: {', '.join(unknown)}")
         scenarios = [suite[w] for w in wanted]
-
-        if app.state.run_lock.locked():
-            raise HTTPException(409, "đang có run khác chạy — chờ xong rồi chạy tiếp")
-
         load_dotenv()
         try:
-            targets = load_config(config_path)
-            llm_caller = build_llm_caller(config_path, scenarios)
+            t = load_config(config_path)
+            llm = build_llm_caller(config_path, scenarios)
         except (LlmError, ConfigError) as exc:
             raise HTTPException(400, f"không dựng được run: {exc}")
 
-        run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
-        state = JobState(run_id=run_id, bot=bot, total=len(scenarios))
+        base = datetime.now().strftime("%Y%m%d-%H%M%S")
+        run_id, seq = base, 0
+        while run_id in app.state.jobs or (runs_dir / f"{run_id}.jsonl").exists():
+            seq += 1
+            run_id = f"{base}-{seq}"
+        state = JobState(run_id=run_id, bot=bot, user=user, total=len(scenarios) * calls)
         app.state.jobs[run_id] = state
-        await app.state.run_lock.acquire()
-        app.state.current_task = asyncio.create_task(
-            _job_then_release(state, scenarios, targets, llm_caller, target_override, concurrency)
+        app.state.pending.add(run_id)
+        app.state.queue.put_nowait(
+            QueueItem(
+                state=state,
+                scenarios=scenarios,
+                targets=t,
+                llm_caller=llm,
+                target_override=target_override,
+                concurrency=concurrency,
+                calls=calls,
+            )
         )
-        return {"run_id": run_id, "total": state.total, "status_url": f"/api/runs/{run_id}/status"}
+        return state
+
+    @app.post("/api/runs")
+    async def start_run(body: dict, request: Request) -> dict:
+        name, _role = _auth(request)
+        state = _enqueue_run(
+            app,
+            bot=str(body.get("bot") or ""),
+            wanted=body.get("scenarios") or [],
+            target_override=body.get("target") or None,
+            calls=body.get("calls") or 1,
+            concurrency=body.get("concurrency") or 1,
+            user=name,
+        )
+        position = len(app.state.pending)
+        return {
+            "run_id": state.run_id,
+            "total": state.total,
+            "queue_position": position,
+            "status_url": f"/api/runs/{state.run_id}/status",
+        }
 
     @app.get("/api/runs/{run_id}/status")
     def run_status(run_id: str, request: Request) -> dict:
-        _check_key(request)
+        _auth(request)
         state = app.state.jobs.get(run_id)
         if state is not None:
-            done = len(_read_run_rows(runs_dir, run_id))  # mỗi kịch bản xong = 1 dòng JSONL
+            done = len(_read_run_rows(runs_dir, run_id))
+            pending = list(app.state.pending)
             return {
                 "run_id": run_id,
                 "status": state.status,
-                "done": done if state.status == "running" else state.total,
+                "done": done if state.status in ("running", "queued") else state.total,
                 "total": state.total,
+                "queue_position": pending.index(run_id) + 1 if run_id in pending else 0,
                 "error": state.error,
                 "results": state.results,
             }
@@ -255,44 +478,150 @@ def create_app(*, bots_dir="bots", runs_dir="runs", config_path="config.yaml") -
             return {"run_id": run_id, "status": "done", "results": []}
         raise HTTPException(404, f"không có run {run_id}")
 
-    # ---------- lịch sử & chi tiết ----------
+    # ---------- lịch sử, review, export ----------
 
     @app.get("/api/runs")
     def list_runs(request: Request) -> list[dict]:
-        _check_key(request)
-        index = runs_dir / "INDEX.md"
-        if not index.is_file():
-            return []
-        out = []
-        for line in index.read_text(encoding="utf-8").splitlines():
-            parts = [p.strip() for p in line.strip().strip("|").split("|")]
-            if len(parts) != 6 or parts[0] in ("Run", "---"):
-                continue
-            out.append(
-                {
-                    "run": parts[0],
-                    "target": parts[1],
-                    "scenario": parts[2].strip("`"),
-                    "status": parts[3],
-                    "conversation": parts[4],
-                    "report": parts[5],
-                }
-            )
-        return list(reversed(out))
+        _auth(request)
+        return list(reversed(_parse_index(runs_dir)))
+
+    @app.get("/api/runs/{run_id}/review")
+    def get_review(run_id: str, request: Request) -> list[dict]:
+        _auth(request)
+        return _load_reviews(runs_dir, run_id)
+
+    @app.post("/api/runs/{run_id}/review")
+    def post_review(run_id: str, body: dict, request: Request) -> dict:
+        name, _role = _auth(request)
+        if not _RUN_ID_RE.match(run_id) or not (runs_dir / f"{run_id}.jsonl").is_file():
+            raise HTTPException(404, f"không có run {run_id}")
+        verdict = str(body.get("verdict") or "")
+        if verdict not in _VERDICTS:
+            raise HTTPException(400, f"verdict phải một trong {_VERDICTS}")
+        scenario = str(body.get("scenario") or "")
+        call = str(body.get("call") or "1/1")
+        anchor = body.get("anchor")
+        if anchor is not None and not re.match(r"^T\d+$", str(anchor)):
+            raise HTTPException(400, "anchor phải dạng T<số lượt>")
+        entry = {
+            "scenario": scenario,
+            "call": call,
+            "reviewer": name,
+            "verdict": verdict,
+            "anchor": str(anchor) if anchor else "",
+            "note": str(body.get("note") or "")[:1000],
+            "ts": datetime.now().isoformat(timespec="seconds"),
+        }
+        reviews = _load_reviews(runs_dir, run_id)
+        reviews = [
+            r
+            for r in reviews
+            if not (r.get("scenario") == scenario and r.get("call") == call and r.get("reviewer") == name)
+        ]
+        reviews.append(entry)
+        _save_reviews(runs_dir, run_id, reviews)
+        return entry
 
     @app.get("/api/runs/{run_id}")
     def run_detail(run_id: str, request: Request) -> dict:
-        _check_key(request)
-        if not re.match(r"^\d{8}-\d{6}$", run_id):
+        _auth(request)
+        if not _RUN_ID_RE.match(run_id):
             raise HTTPException(400, "run_id không hợp lệ")
         rows = _read_run_rows(runs_dir, run_id)
         if not rows:
             raise HTTPException(404, f"không có run {run_id}")
+        reviews = _load_reviews(runs_dir, run_id)
         return {
             "run_id": run_id,
             "report_exists": (runs_dir / f"{run_id}.md").is_file(),
             "scenarios": rows,
+            "reviews": reviews,
         }
+
+    @app.get("/api/runs/{run_id}/export")
+    def export_run(run_id: str, request: Request, format: str = "md") -> PlainTextResponse:
+        _auth(request)
+        rows = _read_run_rows(runs_dir, run_id)
+        if not rows:
+            raise HTTPException(404, f"không có run {run_id}")
+        reviews = _load_reviews(runs_dir, run_id)
+        if format == "csv":
+            lines = ["run,scenario,call,status,conversation,verdict,reviewer,anchor,note"]
+            for r in rows:
+                rv = next(
+                    (v for v in reviews if v.get("scenario") == f"{r['suite']}/{r['scenario']}" and v.get("call") == r.get("call", "1/1")),
+                    {},
+                )
+                note = str(rv.get("note", "")).replace('"', '""')
+                lines.append(
+                    f"{run_id},{r['suite']}/{r['scenario']},{r.get('call', '1/1')},{r['status']},"
+                    f"{r.get('conversation_id') or ''},{rv.get('verdict', '')},{rv.get('reviewer', '')},"
+                    f"{rv.get('anchor', '')},\"{note}\""
+                )
+            return PlainTextResponse("\n".join(lines), media_type="text/csv")
+        # markdown
+        lines = [f"# Run {run_id}", ""]
+        for r in rows:
+            scn = f"{r['suite']}/{r['scenario']}"
+            rv = next((v for v in reviews if v.get("scenario") == scn and v.get("call") == r.get("call", "1/1")), {})
+            verdict = f" — review: **{rv['verdict']}** bởi {rv['reviewer']}" if rv else " — chưa review"
+            lines.append(f"## {scn} ({r.get('call', '1/1')}) — {r['status']}{verdict}")
+            lines.append(f"Conv: `{r.get('conversation_id') or '—'}`")
+            if rv.get("anchor"):
+                lines.append(f"Neo: {rv['anchor']}")
+            if rv.get("note"):
+                lines.append(f"Ghi chú: {rv['note']}")
+            lines.append("")
+        return PlainTextResponse("\n".join(lines), media_type="text/markdown")
+
+    # ---------- thống kê (dashboard) ----------
+
+    @app.get("/api/stats")
+    def stats(request: Request, bot: str = "", days: int = 14) -> dict:
+        _auth(request)
+        days = max(1, min(int(days or 14), 90))
+        since = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
+        rows = [r for r in _parse_index(runs_dir) if r["run"][:8] >= since]
+        if bot:
+            rows = [r for r in rows if r["scenario"].split("/")[0] == bot or r["target"] == bot]
+
+        def _reviews_of(run_id: str) -> dict:
+            return {
+                (v.get("scenario"), v.get("call")): v
+                for v in _load_reviews(runs_dir, run_id)
+            }
+
+        run_ids = sorted({r["run"] for r in rows})
+        review_maps = {rid: _reviews_of(rid) for rid in run_ids}
+        per_scn: dict[str, dict] = {}
+        for r in rows:
+            scn = r["scenario"]
+            call = ""
+            m = re.match(r"^(.*) \((\d+/\d+)\)$", scn)
+            if m:
+                scn, call = m.group(1), m.group(2)
+            d = per_scn.setdefault(
+                scn, {"scenario": scn, "target": r["target"], "total": 0, "pass": 0, "fail": 0, "blocked": 0, "reviewed": 0, "issues": 0}
+            )
+            d["total"] += 1
+            status = r["status"].lower()  # pass | fail | blocked
+            d[status] = d.get(status, 0) + 1
+            rv = review_maps.get(r["run"], {}).get((scn, call or "1/1"))
+            if rv:
+                d["reviewed"] += 1
+                d["issues"] += rv.get("verdict") == "issue"
+        out = {
+            "days": days,
+            "bot": bot or None,
+            "runs": len(run_ids),
+            "rows": len(rows),
+            "reviewed": sum(d["reviewed"] for d in per_scn.values()),
+            "scenarios": sorted(
+                per_scn.values(),
+                key=lambda d: (-(d["fail"] + d["blocked"] + d["issues"]), d["scenario"]),
+            ),
+        }
+        return out
 
     # ---------- static ----------
 

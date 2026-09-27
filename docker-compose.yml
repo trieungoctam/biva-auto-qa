@@ -1,15 +1,19 @@
-# auto-qa web UI — deploy VPS (PLAN-UI-DEPLOY.md)
-# Chuẩn bị: đặt AUTOQA_UI_KEY vào .env (biến quản trị riêng của UI) + các key LLM/token target.
+# auto-qa web UI — deploy VPS (docs/RUNBOOK.md, docs/TECH-DESIGN.md)
+# Chuẩn bị: .env chứa GEMINI_API_KEY, AUTOQA_LIVE_DEMO_TOKEN, AUTOQA_ADMIN_KEY
+# (dùng 1 lần tạo admin đầu, rồi gỡ được).
 # Chạy:     docker compose up -d --build   →  http://<vps>:8788
-# HTTPS:    thêm reverse proxy (caddy/nginx) trỏ tới port 8788 khi expose ra ngoài.
+# Người dùng: admin thêm qua tab Admin (users.yaml chỉ lưu key đã băm).
+# Lịch chạy tự động: khai báo schedules.yaml (mẫu cuối file này).
 services:
   autoqa:
     build: .
     restart: unless-stopped
     ports:
       - "8788:8788"
-    env_file: .env            # GEMINI_API_KEY, AUTOQA_LIVE_DEMO_TOKEN, AUTOQA_UI_KEY…
+    env_file: .env            # GEMINI_API_KEY, AUTOQA_LIVE_DEMO_TOKEN, AUTOQA_ADMIN_KEY…
     volumes:
-      - ./runs:/app/runs      # lịch sử + INDEX.md + báo cáo (rw — sống sót qua image rebuild)
+      - ./runs:/app/runs      # lịch sử + INDEX.md + review (rw — sống sót qua rebuild)
       - ./bots:/app/bots:ro   # knowledge/scenarios read-only; raw/ bị chặn ở app layer + dockerignore
       - ./config.yaml:/app/config.yaml:ro
+      - ./users.yaml:/app/users.yaml         # người dùng (key đã băm) — tạo rỗng nếu chưa có
+      - ./schedules.yaml:/app/schedules.yaml # lịch chạy tự động — tạo rỗng nếu chưa có

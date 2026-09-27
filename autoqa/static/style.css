@@ -43,3 +43,14 @@ details.tr summary { cursor:pointer; }
 .know { background:#0d1117; border:1px solid var(--line); border-radius:8px; padding:14px 16px; white-space:pre-wrap; font:12.5px/1.6 ui-monospace, Menlo, monospace; max-height:70vh; overflow:auto; }
 code { background:#0d1117; border:1px solid var(--line); border-radius:4px; padding:0 5px; font-size:12.5px; }
 h2 { margin:4px 0 12px; font-size:15px; }
+
+/* v1: review + admin + dashboard */
+.pin { background:none; border:1px solid var(--line); color:var(--mut); border-radius:5px; font-size:11px; padding:1px 6px; cursor:pointer; margin-left:8px; }
+.pin.on { color:#e2a400; border-color:#55461c; background:#2b2415; }
+form.rv { border-top:1px dashed var(--line); margin-top:10px; padding-top:10px; }
+form.rv label { display:inline-flex; gap:4px; align-items:center; color:var(--txt); cursor:pointer; }
+form.rv input[name=note] { background:#0d1117; border:1px solid var(--line); color:var(--txt); border-radius:6px; padding:6px 10px; }
+a.btn, .btn { background:#232c38; color:var(--txt); border:1px solid var(--line); border-radius:6px; padding:5px 10px; font-size:12.5px; cursor:pointer; text-decoration:none; display:inline-block; }
+.ok { color:var(--pass); } .bad { color:var(--fail); }
+#who { margin-left:auto; margin-right:10px; }
+#keybox { margin-left:0; }

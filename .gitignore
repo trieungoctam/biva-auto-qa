@@ -6,3 +6,5 @@ __pycache__/
 runs/
 bots/*/raw/
 .agentkit/
+users.yaml
+schedules.yaml

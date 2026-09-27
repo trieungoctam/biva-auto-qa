@@ -8,3 +8,6 @@ __pycache__
 runs
 bots/*/raw
 PLAN-UI-DEPLOY.md
+docs
+users.yaml
+schedules.yaml

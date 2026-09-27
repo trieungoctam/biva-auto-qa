@@ -15,7 +15,6 @@ import argparse
 import asyncio
 from datetime import datetime
 from pathlib import Path
-
 from autoqa.config import load_config
 from autoqa.llm import LlmClient, LlmError, build_llm_caller, load_dotenv
 from autoqa.report import write_report
@@ -38,6 +37,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument("--concurrency", type=int, default=1, help="số kịch bản chạy song song")
     run.add_argument("--out", default="runs", help="thư mục xuất JSONL + báo cáo")
+    run.add_argument("--calls", type=int, default=1, help="số conversation mỗi kịch bản (bắt lỗi lúc được lúc không)")
+    run.add_argument("--user", default="cli", help="tên người chạy ghi vào INDEX (vd. tên bạn khi chạy tay)")
 
     ui = sub.add_parser("ui", help="mở web UI (chạy test, xem transcript, tra conv ID)")
     ui.add_argument("--bots-dir", default="bots", help="thư mục bots/ (mỗi bot một thư mục)")
@@ -48,14 +49,15 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _append_index(out_dir: Path, run_id: str, results, report_path: Path) -> Path:
-    """Ghi nối chỉ mục runs/INDEX.md — mỗi kịch bản một dòng, để tra conversation_id về sau."""
+def _append_index(out_dir: Path, run_id: str, results, report_path: Path, user: str = "cli") -> Path:
+    """Ghi nối chỉ mục runs/INDEX.md — mỗi call một dòng, để tra conversation_id về sau."""
     index = out_dir / "INDEX.md"
-    header = "| Run | Target | Kịch bản | Trạng thái | Conversation | Báo cáo |"
-    sep = "|---|---|---|---|---|---|"
+    header = "| Run | Target | Kịch bản | Trạng thái | Conversation | Người chạy | Báo cáo |"
+    sep = "|---|---|---|---|---|---|---|"
     lines = [
-        f"| {run_id} | {r.target_name or '?'} | `{r.id}` | {r.status} | "
-        f"{r.conversation_id or '—'} | {report_path} |"
+        f"| {run_id} | {r.target_name or '?'} | `{r.id}`"
+        + (f" ({r.call_index}/{r.calls})" if r.calls > 1 else "")
+        + f" | {r.status} | {r.conversation_id or '—'} | {user} | {report_path} |"
         for r in results
     ]
     exists = index.exists()
@@ -86,7 +88,6 @@ def _run_main(args) -> int:
         except LlmError as exc:
             print(f"Lỗi: {exc}")
             return 2
-
     results = asyncio.run(
         run_suite(
             targets,
@@ -97,15 +98,17 @@ def _run_main(args) -> int:
             out_jsonl=jsonl_path,
             llm_caller=llm_caller,
             concurrency=args.concurrency,
+            calls=args.calls,
         )
     )
     write_report(results, report_path, run_id=run_id)
-    index_path = _append_index(out_dir, run_id, results, report_path)
+    index_path = _append_index(out_dir, run_id, results, report_path, user=args.user)
 
     for r in results:
         conv = f"  [conv {r.conversation_id}]" if r.conversation_id else ""
+        call = f" (call {r.call_index}/{r.calls})" if r.calls > 1 else ""
         marker = {"PASS": "ok ", "FAIL": "FAIL", "BLOCKED": "BLOCK"}.get(r.status, "?")
-        print(f"{marker} {r.status:7s} {r.target_name:12s} {r.id}{conv}")
+        print(f"{marker} {r.status:7s} {r.target_name:12s} {r.id}{call}{conv}")
     print(f"\nJSONL:   {jsonl_path}")
     print(f"Báo cáo: {report_path}")
     print(f"Chỉ mục: {index_path}")
