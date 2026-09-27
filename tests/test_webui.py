@@ -205,3 +205,55 @@ def test_scheduler_enqueues_due_schedule(client, monkeypatch):
     scheds = yaml.safe_load((project / "schedules.yaml").read_text(encoding="utf-8"))
     now = datetime.now()
     assert w._sched_due_today(scheds[0], now) is True  # at 00:00 luôn due trong ngày
+
+def test_editing_knowledge_and_sources_admin_only(client):
+    c, project = client
+    # member bị chặn sửa
+    assert c.put("/api/bots/mockbot/knowledge", json={"business": "x"}, headers={"X-API-Key": c.app.state.member_key}).status_code == 403
+
+    # admin sửa knowledge → lưu + git commit (repo tmp là git)
+    import subprocess
+
+    subprocess.run(["git", "init", "-q"], cwd=project, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=project, check=True)
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@x", "commit", "-qm", "init"], cwd=project, check=True)
+
+    r = c.put(
+        "/api/bots/mockbot/knowledge",
+        json={"business": "# Nghiệp vụ mới\n- quy tắc A"},
+        headers={"X-API-Key": c.app.state.admin_key},
+    ).json()
+    assert r["ok"] and r["commit"]
+    know = c.get("/api/bots/mockbot/knowledge", headers={"X-API-Key": c.app.state.member_key}).json()
+    assert "quy tắc A" in know["business"]
+
+    # commit mang tên người sửa
+    log = subprocess.run(["git", "log", "-1", "--format=%an %s"], cwd=project, capture_output=True, text=True).stdout
+    assert "admin" in log and "knowledge" in log
+
+    # sửa kịch bản: YAML sai bị chặn, file nguyên vẹn; YAML đúng thì lưu
+    path = project / "bots" / "mockbot" / "scenarios" / "smoke.yaml"
+    before = path.read_text(encoding="utf-8")
+    assert c.put("/api/bots/mockbot/scenarios/smoke/source", json={"yaml": "mode: sai\n"},
+                 headers={"X-API-Key": c.app.state.admin_key}).status_code == 400
+    assert path.read_text(encoding="utf-8") == before
+    r2 = c.put(
+        "/api/bots/mockbot/scenarios/smoke/source",
+        json={"yaml": "mode: script\nsuite: mockbot\nname: smoke\ntarget: mock\nturns:\n  - say: hi\n"},
+        headers={"X-API-Key": c.app.state.admin_key},
+    ).json()
+    assert r2["ok"]
+
+    # tạo + xoá kịch bản mới
+    new_yaml = "mode: script\nsuite: mockbot\nname: moi\ntarget: mock\nturns:\n  - say: x\n"
+    assert c.post("/api/bots/mockbot/scenarios", json={"name": "moi", "yaml": new_yaml},
+                  headers={"X-API-Key": c.app.state.admin_key}).json()["ok"]
+    assert c.delete("/api/bots/mockbot/scenarios/moi", headers={"X-API-Key": c.app.state.admin_key}).json()["ok"]
+
+    # tình huống: name phải khớp tên file
+    bad_sit = "name: khac-ten\ngoal: |\n  x\n"
+    assert c.post("/api/bots/mockbot/situations", json={"name": "dung-ten", "yaml": bad_sit},
+                  headers={"X-API-Key": c.app.state.admin_key}).status_code == 400
+    good_sit = "name: dung-ten\ngoal: |\n  x\nextra_turns: 1\n"
+    assert c.post("/api/bots/mockbot/situations", json={"name": "dung-ten", "yaml": good_sit},
+                  headers={"X-API-Key": c.app.state.admin_key}).json()["ok"]

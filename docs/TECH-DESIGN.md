@@ -87,24 +87,27 @@
   rẻ; cache in-memory 60s).
 - API: `GET /api/stats?bot=&days=` → per-scenario pass-rate, issue count, review rate.
 
-## 4. M3 — CRUD + audit
+## 4. M3 — CRUD + audit (đã hiện thực phần chỉnh sửa theo yêu cầu cloud-first 27/09)
 
-- Mount `bots/` rw; sau mỗi sửa: `git -C /app add <file> && git commit -m "ui(<user>): ..."`
-  (container mount cả `.git`; nếu không mount được thì ghi patch vào `audit/` + push khi deploy).
-- API CRUD validate bằng `load_scenario` (loader là contract duy nhất); sai → 400,
-  file nguyên vẹn (ghi tạm → validate → rename).
-- Không CRUD bot mới / không sửa `config.yaml` từ UI (thêm target = việc deploy, có
-  whitelist host để bảo vệ).
-- Export tuần: `GET /api/export/week?from=` → MD gộp runs + reviews (cho lead).
+- **Cloud là nguồn chân dữ liệu**: VPS mount `bots/` rw + `.git` rw; admin sửa
+  `knowledge/business.md`, kịch bản, tình huống trực tiếp từ UI (editor
+  YAML/markdown; validate bằng chính loader — sai cú pháp bị chặn, file nguyên vẹn:
+  ghi tạm → validate → rename).
+- **Git audit**: mỗi lần lưu = `git commit` author mang tên người UI
+  (`ui(<user>): sửa knowledge <bot>`, xem `autoqa/audit.py`) — best-effort: không
+  có `.git` thì vẫn lưu, chỉ thiếu vết. Push tự động nếu env `AUTOQA_GIT_PUSH=1`.
+- Không CRUD bot mới / không sửa `config.yaml` từ UI (thêm target = việc deploy,
+  giữ whitelist host).
+- Còn lại của M3: export tuần, trang "vé test cần hủy".
 
 ## 5. Sơ đồ triển khai mục tiêu
 
 ```
-            ┌─ autoqa-web (uvicorn :8788) ─ queue 1 worker ── core run_suite
-VPS docker ─┤                       │
-            ├─ autoqa-cron  (schedules.yaml)
-            ├─ volumes: runs/ (rw, backup đêm) · bots/ (rw từ M3, git audit)
-            │           config.yaml (ro) · .env (keys: UI users, LLM, target token, notify)
+            ┌─ autoqa-web (uvicorn :8788) ─ queue FIFO 1 worker ─ core run_suite
+VPS docker ─┤        ├─ scheduler in-proc (schedules.yaml)
+            ├─ volumes: runs/ (rw, backup đêm) · bots/ (rw — cloud là nguồn chân,
+            │           admin sửa từ UI) · .git (rw — audit commit mỗi lần sửa)
+            │           · config.yaml (ro) · users.yaml · schedules.yaml
             └─ reverse proxy (HTTPS) → team
 ```
 

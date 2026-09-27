@@ -389,6 +389,134 @@ def create_app(
         text = bfile.read_text(encoding="utf-8") if bfile.is_file() else ""
         return {"bot": bot, "business": text, "has_run_warning": "CẢNH BÁO KHI CHẠY TEST" in text}
 
+
+    # ---------- chỉnh sửa dữ liệu bot (admin) — cloud là nguồn chân, git audit ----------
+
+    _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
+    def _yaml_path(base: Path, name: str, kind: str) -> Path:
+        if not _NAME_RE.match(name or ""):
+            raise HTTPException(400, f"tên {kind} không hợp lệ (a-z, 0-9, gạch ngang)")
+        return base / f"{name}.yaml"
+
+    def _validate_scenario_yaml(path: Path) -> None:
+        try:
+            load_scenario(path)
+        except ScenarioError as exc:
+            raise HTTPException(400, f"YAML không hợp lệ: {exc}")
+
+    def _commit(user: str, what: str, *paths: Path) -> str | None:
+        from autoqa.audit import commit_paths
+
+        return commit_paths(bots_dir.parent, list(paths), author=user, message=f"ui({user}): {what}")
+
+    @app.put("/api/bots/{bot}/knowledge")
+    def put_knowledge(bot: str, body: dict, request: Request) -> dict:
+        name, _ = _admin(request)
+        from autoqa.audit import atomic_write
+
+        d = _bot_dir(bots_dir, bot)
+        business = str(body.get("business") or "")
+        if not business.strip():
+            raise HTTPException(400, "business không được để trống")
+        bfile = d / "knowledge" / "business.md"
+        atomic_write(bfile, business)
+        return {"ok": True, "commit": _commit(name, f"sửa knowledge {bot}", bfile)}
+
+    def _source_crud(base: Path, kind: str, validate, name_check=None):
+        """Factory cho GET/PUT/POST/DELETE nguồn YAML (scenarios | situations)."""
+
+        def get_source(name: str, request: Request) -> dict:
+            _auth(request)
+            p = _yaml_path(base, name, kind)
+            if not p.is_file():
+                raise HTTPException(404, f"không có {kind} {name!r}")
+            return {"name": name, "yaml": p.read_text(encoding="utf-8")}
+
+        def put_source(name: str, body: dict, request: Request) -> dict:
+            user, _ = _admin(request)
+            from autoqa.audit import atomic_write
+
+            p = _yaml_path(base, name, kind)
+            if not p.is_file():
+                raise HTTPException(404, f"không có {kind} {name!r}")
+            source = str(body.get("yaml") or "")
+            if name_check:
+                name_check(source, name)
+            tmp = p.with_suffix(".yaml.tmp-validate")
+            atomic_write(tmp, source)
+            try:
+                validate(tmp)
+            finally:
+                tmp.unlink(missing_ok=True)
+            atomic_write(p, source)
+            return {"ok": True, "commit": _commit(user, f"sửa {kind} {name}", p)}
+
+        def post_source(body: dict, request: Request) -> dict:
+            user, _ = _admin(request)
+            from autoqa.audit import atomic_write
+
+            name = str(body.get("name") or "")
+            p = _yaml_path(base, name, kind)
+            if p.exists():
+                raise HTTPException(400, f"đã có {kind} {name!r}")
+            source = str(body.get("yaml") or "")
+            if name_check:
+                name_check(source, name)
+            tmp = p.with_suffix(".yaml.tmp-validate")
+            atomic_write(tmp, source)
+            try:
+                validate(tmp)
+            finally:
+                tmp.unlink(missing_ok=True)
+            atomic_write(p, source)
+            return {"ok": True, "commit": _commit(user, f"thêm {kind} {name}", p)}
+
+        def delete_source(name: str, request: Request) -> dict:
+            user, _ = _admin(request)
+            p = _yaml_path(base, name, kind)
+            if not p.is_file():
+                raise HTTPException(404, f"không có {kind} {name!r}")
+            p.unlink()
+            return {"ok": True, "commit": _commit(user, f"xoá {kind} {name}", p)}
+        return get_source, put_source, post_source, delete_source
+
+    def _register_sources(bot: str) -> None:
+        base_scn = _bot_dir(bots_dir, bot) / "scenarios"
+        get_s, put_s, post_s, del_s = _source_crud(base_scn, "kịch bản", _validate_scenario_yaml)
+        app.get(f"/api/bots/{bot}/scenarios/{{name}}/source")(get_s)
+        app.put(f"/api/bots/{bot}/scenarios/{{name}}/source")(put_s)
+        app.post(f"/api/bots/{bot}/scenarios")(post_s)
+        app.delete(f"/api/bots/{bot}/scenarios/{{name}}")(del_s)
+
+        base_sit = _bot_dir(bots_dir, bot) / "situations"
+
+        def validate_situation(path: Path) -> None:
+            from autoqa.scenario import _load_situation
+
+            try:
+                _load_situation(path)
+            except ScenarioError as exc:
+                raise HTTPException(400, f"YAML không hợp lệ: {exc}")
+
+        def check_situation_name(source: str, name: str) -> None:
+            data = yaml.safe_load(source) or {}
+            got = str(data.get("name", "")) if isinstance(data, dict) else ""
+            if got != name:
+                raise HTTPException(400, f"name trong YAML phải là {name!r} (nhận {got!r}) — trùng tên file để mix tìm được")
+
+        get_t, put_t, post_t, del_t = _source_crud(base_sit, "tình huống", validate_situation, check_situation_name)
+        app.get(f"/api/bots/{bot}/situations/{{name}}/source")(get_t)
+        app.put(f"/api/bots/{bot}/situations/{{name}}/source")(put_t)
+        app.post(f"/api/bots/{bot}/situations")(post_t)
+        app.delete(f"/api/bots/{bot}/situations/{{name}}")(del_t)
+
+    # đăng ký route theo bot hiện có (bot mới thêm bằng git → khởi động lại app)
+    if bots_dir.is_dir():
+        for d in sorted(bots_dir.iterdir()):
+            if d.is_dir() and (d / "profile.yaml").is_file():
+                _register_sources(d.name)
+
     @app.get("/api/targets")
     def targets(request: Request) -> list[dict]:
         _auth(request)

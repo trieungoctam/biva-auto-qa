@@ -8,7 +8,7 @@
 </head>
 <body>
 <header>
-  <b>auto-qa</b>
+  <div class="brand"><span class="logo">aq</span> auto-qa</div>
   <nav>
     <button id="tab-run" class="on">Chạy test</button>
     <button id="tab-history">Lịch sử</button>
@@ -17,9 +17,11 @@
     <button id="tab-admin" style="display:none">Admin</button>
   </nav>
   <span id="who" class="mut"></span>
-  <span id="keybox"><input id="apikey" type="password" placeholder="API key" size="14"><button id="setkey">Lưu key</button></span>
+  <span id="keybox"><input id="apikey" type="password" placeholder="API key" size="12"><button id="setkey" class="btn">Lưu</button></span>
 </header>
-<main id="main"><p class="hint">Đang tải…</p></main>
+<main id="main"><div class="loading"></div></main>
+<aside id="panel" aria-hidden="true"><div id="panel-body"></div></aside>
+<div id="backdrop" hidden></div>
 <script src="/static/app.js"></script>
 </body>
 </html>

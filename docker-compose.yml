@@ -13,7 +13,8 @@ services:
     env_file: .env            # GEMINI_API_KEY, AUTOQA_LIVE_DEMO_TOKEN, AUTOQA_ADMIN_KEY…
     volumes:
       - ./runs:/app/runs      # lịch sử + INDEX.md + review (rw — sống sót qua rebuild)
-      - ./bots:/app/bots:ro   # knowledge/scenarios read-only; raw/ bị chặn ở app layer + dockerignore
+      - ./bots:/app/bots      # rw: admin sửa nghiệp vụ/kịch bản từ UI (raw/ vẫn bị chặn app layer)
+      - ./.git:/app/.git      # git audit: mỗi lần sửa từ UI = 1 commit (history + backup)
       - ./config.yaml:/app/config.yaml:ro
       - ./users.yaml:/app/users.yaml         # người dùng (key đã băm) — tạo rỗng nếu chưa có
       - ./schedules.yaml:/app/schedules.yaml # lịch chạy tự động — tạo rỗng nếu chưa có

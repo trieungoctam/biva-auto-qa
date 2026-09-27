@@ -1,5 +1,11 @@
 # RUNBOOK — vận hành auto-qa (internal)
 
+> **Cloud là nguồn chân của dữ liệu** (knowledge, kịch bản, tình huống, runs,
+> review, users). Admin sửa nghiệp vụ trực tiếp trên UI — mỗi lần sửa server
+> tự `git commit` (ai sửa, sửa gì) vào repo trên VPS; kéo về máy bằng
+> `git pull`, backup bằng `git push`. Riêng `bots/*/raw/` CHỈ ở máy local
+> (PII/tài liệu gốc), không bao giờ lên cloud.
+
 > Ai giữ: owner + 1 backup person. Mọi lệnh chạy trên VPS, trong thư mục repo.
 
 ## Deploy lần đầu
@@ -8,7 +14,7 @@
 git clone git@github.com:trieungoctam/biva-auto-qa.git && cd biva-auto-qa
 cp .env.example .env   # điền: GEMINI_API_KEY, AUTOQA_LIVE_DEMO_TOKEN,
                        # AUTOQA_ADMIN_KEY (dùng 1 lần tạo admin đầu, rồi gỡ)
-docker compose up -d --build
+touch users.yaml schedules.yaml && docker compose up -d --build
 curl -s localhost:8788/api/bots -H "X-API-Key: <key>"   # kiểm tra sống
 ```
 
