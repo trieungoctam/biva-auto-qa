@@ -33,7 +33,8 @@ from autoqa.llm import LlmError, build_llm_caller, load_dotenv
 from autoqa.report import write_report
 from autoqa.runner import run_suite
 from autoqa.scenario import ScenarioError, load_scenario
-from autoqa.users import UserStore, UsersError
+from autoqa.db import Db
+from autoqa.users import DbUserStore, UserStore, UsersError
 
 _BOT_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$")
 _RUN_ID_RE = re.compile(r"^\d{8}-\d{6}(-\d+)?$")
@@ -156,6 +157,7 @@ def create_app(
     config_path="config.yaml",
     users_file="users.yaml",
     schedules_file="schedules.yaml",
+    db: Db | None = None,
 ) -> FastAPI:
     bots_dir, runs_dir = Path(bots_dir), Path(runs_dir)
     users_file, schedules_file = Path(users_file), Path(schedules_file)
@@ -180,6 +182,11 @@ def create_app(
             report_path = runs_dir / f"{st.run_id}.md"
             write_report(results, report_path, run_id=st.run_id)
             _append_index(runs_dir, st.run_id, results, report_path, user=st.user)
+            if app.state.db.enabled:
+                app.state.db.maybe(
+                    app.state.db.push_run, st.run_id, _read_run_rows(runs_dir, st.run_id),
+                    bot=st.bot, user=st.user,
+                )
             st.results = [
                 {
                     "id": r.id,
@@ -212,7 +219,20 @@ def create_app(
         """Đọc schedules.yaml mỗi phút; đến giờ → enqueue run (user=scheduler)."""
         while True:
             try:
-                if schedules_file.is_file():
+                if app.state.db.enabled:
+                    scheds = [
+                        {
+                            "name": s.get("name"),
+                            "bot": s.get("bot"),
+                            "scenarios": s.get("scenarios") or [],
+                            "at": s.get("at_time"),
+                            "calls": s.get("calls") or 1,
+                            "concurrency": s.get("concurrency") or 1,
+                            "user": s.get("run_user") or "scheduler",
+                        }
+                        for s in (app.state.db.maybe(app.state.db.select, "aq_schedules") or [])
+                    ]
+                elif schedules_file.is_file():
                     scheds = yaml.safe_load(schedules_file.read_text(encoding="utf-8")) or []
                     now = datetime.now()
                     for s in scheds if isinstance(scheds, list) else []:
@@ -242,8 +262,40 @@ def create_app(
                 pass  # scheduler không bao giờ chết
             await asyncio.sleep(60)
 
+    def _hydrate_bots_from_db() -> None:
+        """Kéo aq_bots/scenarios/situations về file local (loader + git làm việc trên file)."""
+        db = app.state.db
+        if not db.enabled:
+            return
+        bots = db.maybe(db.select, "aq_bots") or []
+        for b in bots:
+            d = bots_dir / str(b.get("bot") or "")
+            (d / "knowledge").mkdir(parents=True, exist_ok=True)
+            (d / "scenarios").mkdir(exist_ok=True)
+            (d / "situations").mkdir(exist_ok=True)
+            if not (d / "profile.yaml").is_file():
+                (d / "profile.yaml").write_text(
+                    yaml.safe_dump(
+                        {
+                            "bot": b.get("bot"),
+                            "display_name": b.get("display_name") or b.get("bot"),
+                            "target": b.get("target") or "",
+                            "business_file": "knowledge/business.md",
+                        },
+                        allow_unicode=True,
+                    ),
+                    encoding="utf-8",
+                )
+            if b.get("business"):
+                atomic_write_local = d / "knowledge" / "business.md"
+                atomic_write_local.write_text(str(b["business"]), encoding="utf-8")
+            for table, folder in (("aq_scenarios", "scenarios"), ("aq_situations", "situations")):
+                for row in db.maybe(db.select, table, {"bot": f"eq.{b.get('bot')}"}) or []:
+                    (d / folder / f"{row['name']}.yaml").write_text(str(row.get("yaml") or ""), encoding="utf-8")
+
     @asynccontextmanager
     async def _lifespan(app: FastAPI):
+        _hydrate_bots_from_db()
         app.state.users.bootstrap()
         app.state.worker = asyncio.create_task(_worker(app))
         app.state.sched_task = asyncio.create_task(_scheduler(app))
@@ -252,7 +304,8 @@ def create_app(
         app.state.sched_task.cancel()
 
     app = FastAPI(title="auto-qa", docs_url=None, redoc_url=None, lifespan=_lifespan)
-    app.state.users = UserStore(users_file)
+    app.state.db = db or Db()
+    app.state.users = DbUserStore(app.state.db) if app.state.db.enabled else UserStore(users_file)
     app.state.jobs: dict[str, JobState] = {}
     app.state.queue: asyncio.Queue = asyncio.Queue()
     app.state.pending: set[str] = set()
@@ -420,10 +473,22 @@ def create_app(
         if not business.strip():
             raise HTTPException(400, "business không được để trống")
         bfile = d / "knowledge" / "business.md"
+        if app.state.db.enabled:
+            prof = yaml.safe_load((d / "profile.yaml").read_text(encoding="utf-8")) or {}
+            app.state.db.upsert(
+                "aq_bots",
+                {
+                    "bot": bot,
+                    "display_name": str(prof.get("display_name") or bot),
+                    "target": str(prof.get("target") or ""),
+                    "business": business,
+                },
+                "bot",
+            )
         atomic_write(bfile, business)
         return {"ok": True, "commit": _commit(name, f"sửa knowledge {bot}", bfile)}
 
-    def _source_crud(base: Path, kind: str, validate, name_check=None):
+    def _source_crud(base: Path, kind: str, validate, name_check=None, db_table: str = "", bot: str = ""):
         """Factory cho GET/PUT/POST/DELETE nguồn YAML (scenarios | situations)."""
 
         def get_source(name: str, request: Request) -> dict:
@@ -449,6 +514,8 @@ def create_app(
                 validate(tmp)
             finally:
                 tmp.unlink(missing_ok=True)
+            if db_table and app.state.db.enabled:
+                app.state.db.upsert(db_table, {"bot": bot, "name": name, "yaml": source}, "bot,name")
             atomic_write(p, source)
             return {"ok": True, "commit": _commit(user, f"sửa {kind} {name}", p)}
 
@@ -469,6 +536,8 @@ def create_app(
                 validate(tmp)
             finally:
                 tmp.unlink(missing_ok=True)
+            if db_table and app.state.db.enabled:
+                app.state.db.upsert(db_table, {"bot": bot, "name": name, "yaml": source}, "bot,name")
             atomic_write(p, source)
             return {"ok": True, "commit": _commit(user, f"thêm {kind} {name}", p)}
 
@@ -477,13 +546,15 @@ def create_app(
             p = _yaml_path(base, name, kind)
             if not p.is_file():
                 raise HTTPException(404, f"không có {kind} {name!r}")
+            if db_table and app.state.db.enabled:
+                app.state.db.delete(db_table, {"bot": f"eq.{bot}", "name": f"eq.{name}"})
             p.unlink()
             return {"ok": True, "commit": _commit(user, f"xoá {kind} {name}", p)}
         return get_source, put_source, post_source, delete_source
 
     def _register_sources(bot: str) -> None:
         base_scn = _bot_dir(bots_dir, bot) / "scenarios"
-        get_s, put_s, post_s, del_s = _source_crud(base_scn, "kịch bản", _validate_scenario_yaml)
+        get_s, put_s, post_s, del_s = _source_crud(base_scn, "kịch bản", _validate_scenario_yaml, db_table="aq_scenarios", bot=bot)
         app.get(f"/api/bots/{bot}/scenarios/{{name}}/source")(get_s)
         app.put(f"/api/bots/{bot}/scenarios/{{name}}/source")(put_s)
         app.post(f"/api/bots/{bot}/scenarios")(post_s)
@@ -505,7 +576,7 @@ def create_app(
             if got != name:
                 raise HTTPException(400, f"name trong YAML phải là {name!r} (nhận {got!r}) — trùng tên file để mix tìm được")
 
-        get_t, put_t, post_t, del_t = _source_crud(base_sit, "tình huống", validate_situation, check_situation_name)
+        get_t, put_t, post_t, del_t = _source_crud(base_sit, "tình huống", validate_situation, check_situation_name, db_table="aq_situations", bot=bot)
         app.get(f"/api/bots/{bot}/situations/{{name}}/source")(get_t)
         app.put(f"/api/bots/{bot}/situations/{{name}}/source")(put_t)
         app.post(f"/api/bots/{bot}/situations")(post_t)
@@ -608,20 +679,36 @@ def create_app(
 
     # ---------- lịch sử, review, export ----------
 
+    def _index_rows() -> list[dict]:
+        if app.state.db.enabled:
+            rows = app.state.db.maybe(app.state.db.call_rows_as_index)
+            if rows is not None:
+                return rows
+        return list(reversed(_parse_index(runs_dir)))
+
     @app.get("/api/runs")
     def list_runs(request: Request) -> list[dict]:
         _auth(request)
-        return list(reversed(_parse_index(runs_dir)))
+        return _index_rows()
 
     @app.get("/api/runs/{run_id}/review")
     def get_review(run_id: str, request: Request) -> list[dict]:
         _auth(request)
+        if app.state.db.enabled:
+            rows = app.state.db.maybe(app.state.db.reviews, run_id)
+            if rows is not None:
+                return rows
         return _load_reviews(runs_dir, run_id)
 
     @app.post("/api/runs/{run_id}/review")
     def post_review(run_id: str, body: dict, request: Request) -> dict:
         name, _role = _auth(request)
-        if not _RUN_ID_RE.match(run_id) or not (runs_dir / f"{run_id}.jsonl").is_file():
+        if not _RUN_ID_RE.match(run_id):
+            raise HTTPException(400, "run_id không hợp lệ")
+        if app.state.db.enabled:
+            if not app.state.db.maybe(app.state.db.call_rows_as_jsonl, run_id):
+                raise HTTPException(404, f"không có run {run_id}")
+        elif not (runs_dir / f"{run_id}.jsonl").is_file():
             raise HTTPException(404, f"không có run {run_id}")
         verdict = str(body.get("verdict") or "")
         if verdict not in _VERDICTS:
@@ -640,14 +727,17 @@ def create_app(
             "note": str(body.get("note") or "")[:1000],
             "ts": datetime.now().isoformat(timespec="seconds"),
         }
-        reviews = _load_reviews(runs_dir, run_id)
-        reviews = [
-            r
-            for r in reviews
-            if not (r.get("scenario") == scenario and r.get("call") == call and r.get("reviewer") == name)
-        ]
-        reviews.append(entry)
-        _save_reviews(runs_dir, run_id, reviews)
+        if app.state.db.enabled:
+            app.state.db.save_review({**entry, "run_id": run_id})
+        else:
+            reviews = _load_reviews(runs_dir, run_id)
+            reviews = [
+                r
+                for r in reviews
+                if not (r.get("scenario") == scenario and r.get("call") == call and r.get("reviewer") == name)
+            ]
+            reviews.append(entry)
+            _save_reviews(runs_dir, run_id, reviews)
         return entry
 
     @app.get("/api/runs/{run_id}")
@@ -655,10 +745,13 @@ def create_app(
         _auth(request)
         if not _RUN_ID_RE.match(run_id):
             raise HTTPException(400, "run_id không hợp lệ")
-        rows = _read_run_rows(runs_dir, run_id)
+        if app.state.db.enabled:
+            rows = app.state.db.maybe(app.state.db.call_rows_as_jsonl, run_id) or []
+        else:
+            rows = _read_run_rows(runs_dir, run_id)
         if not rows:
             raise HTTPException(404, f"không có run {run_id}")
-        reviews = _load_reviews(runs_dir, run_id)
+        reviews = get_review(run_id, request)
         return {
             "run_id": run_id,
             "report_exists": (runs_dir / f"{run_id}.md").is_file(),
@@ -709,15 +802,17 @@ def create_app(
         _auth(request)
         days = max(1, min(int(days or 14), 90))
         since = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
-        rows = [r for r in _parse_index(runs_dir) if r["run"][:8] >= since]
+        rows = [r for r in _index_rows() if r["run"][:8] >= since]
         if bot:
             rows = [r for r in rows if r["scenario"].split("/")[0] == bot or r["target"] == bot]
 
         def _reviews_of(run_id: str) -> dict:
-            return {
-                (v.get("scenario"), v.get("call")): v
-                for v in _load_reviews(runs_dir, run_id)
-            }
+            src = (
+                app.state.db.reviews(run_id)
+                if app.state.db.enabled
+                else _load_reviews(runs_dir, run_id)
+            )
+            return {(v.get("scenario"), v.get("call")): v for v in src}
 
         run_ids = sorted({r["run"] for r in rows})
         review_maps = {rid: _reviews_of(rid) for rid in run_ids}

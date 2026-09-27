@@ -8,3 +8,6 @@ bots/*/raw/
 .agentkit/
 users.yaml
 schedules.yaml
+supabase/.temp
+supabase/.branches
+supabase/.env

@@ -111,6 +111,18 @@ VPS docker ─┤        ├─ scheduler in-proc (schedules.yaml)
             └─ reverse proxy (HTTPS) → team
 ```
 
+## 5b. Lưu trữ — Supabase là backend (27/09)
+
+- Khi env có `SUPABASE_URL` + `SUPABASE_SERVICE_KEY`: users (aq_users), lịch sử
+  run/call (aq_runs/aq_calls — transcript nằm jsonb), review (aq_reviews),
+  schedules (aq_schedules), nghiệp vụ (aq_bots/scenarios/situations) đều lấy từ
+  Supabase; server hydrate bots về file lúc khởi động để loader + git audit
+  tiếp tục làm việc; editor ghi DB trước, file + commit sau.
+- Không env → mọi thứ như cũ theo file. `autoqa db-migrate` đẩy dữ liệu file lên
+  (idempotent). CLI `run` cũng đẩy DB khi env bật.
+- Table editor Supabase có thể sửa `aq_scenarios`/`aq_situations` trực tiếp —
+  thay đổi áp dụng sau khi restart webui (hydrate lại file) — đường chính vẫn là UI auto-qa.
+
 ## 6. Bảo mật & dữ liệu
 
 - Key xoay/thêm người: qua UI admin (`/api/users`) — không cần sửa env hay restart.

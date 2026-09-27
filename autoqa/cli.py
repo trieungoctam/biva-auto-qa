@@ -15,6 +15,8 @@ import argparse
 import asyncio
 from datetime import datetime
 from pathlib import Path
+import yaml
+
 from autoqa.config import load_config
 from autoqa.llm import LlmClient, LlmError, build_llm_caller, load_dotenv
 from autoqa.report import write_report
@@ -39,6 +41,12 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--out", default="runs", help="thư mục xuất JSONL + báo cáo")
     run.add_argument("--calls", type=int, default=1, help="số conversation mỗi kịch bản (bắt lỗi lúc được lúc không)")
     run.add_argument("--user", default="cli", help="tên người chạy ghi vào INDEX (vd. tên bạn khi chạy tay)")
+
+    dbm = sub.add_parser("db-migrate", help="đẩy dữ liệu file (bots, runs, reviews, users) lên Supabase")
+    dbm.add_argument("--bots-dir", default="bots")
+    dbm.add_argument("--runs-dir", default="runs")
+    dbm.add_argument("--users-file", default="users.yaml")
+    dbm.add_argument("--config", default="config.yaml")
 
     ui = sub.add_parser("ui", help="mở web UI (chạy test, xem transcript, tra conv ID)")
     ui.add_argument("--bots-dir", default="bots", help="thư mục bots/ (mỗi bot một thư mục)")
@@ -103,6 +111,11 @@ def _run_main(args) -> int:
     )
     write_report(results, report_path, run_id=run_id)
     index_path = _append_index(out_dir, run_id, results, report_path, user=args.user)
+    from autoqa.db import Db
+
+    db = Db()
+    if db.enabled:
+        db.maybe(db.push_run, run_id, [r.to_row(run_id) for r in results], bot=scenarios[0].suite if scenarios else "", user=args.user)
 
     for r in results:
         conv = f"  [conv {r.conversation_id}]" if r.conversation_id else ""
@@ -115,6 +128,82 @@ def _run_main(args) -> int:
     return 0 if all(r.status == "PASS" for r in results) else 1
 
 
+def _db_migrate_main(args) -> int:
+    from autoqa.db import Db
+
+    load_dotenv()
+    db = Db()
+    if not db.enabled:
+        print("Lỗi: đặt SUPABASE_URL + SUPABASE_SERVICE_KEY trong .env trước khi migrate.")
+        return 2
+
+    import json as _json
+    from autoqa.users import UserStore
+
+    bots_dir, runs_dir = Path(args.bots_dir), Path(args.runs_dir)
+    n_bots = n_scn = n_sit = n_runs = n_calls = n_rev = n_users = 0
+    for d in sorted(bots_dir.iterdir()) if bots_dir.is_dir() else []:
+        if not d.is_dir() or not (d / "profile.yaml").is_file():
+            continue
+        prof = yaml.safe_load((d / "profile.yaml").read_text(encoding="utf-8")) or {}
+        bfile = d / "knowledge" / "business.md"
+        db.upsert(
+            "aq_bots",
+            {
+                "bot": d.name,
+                "display_name": str(prof.get("display_name") or d.name),
+                "target": str(prof.get("target") or ""),
+                "business": bfile.read_text(encoding="utf-8") if bfile.is_file() else "",
+            },
+            "bot",
+        )
+        n_bots += 1
+        for table, folder in (("aq_scenarios", "scenarios"), ("aq_situations", "situations")):
+            fdir = d / folder
+            for f in sorted(fdir.glob("*.yaml")) if fdir.is_dir() else []:
+                db.upsert(table, {"bot": d.name, "name": f.stem, "yaml": f.read_text(encoding="utf-8")}, "bot,name")
+                n_scn += table == "aq_scenarios"
+                n_sit += table == "aq_situations"
+
+    users_file = Path(args.users_file)
+    if users_file.is_file():
+        raw = yaml.safe_load(users_file.read_text(encoding="utf-8")) or []
+        for u in raw if isinstance(raw, list) else []:
+            db.upsert("aq_users", {"name": u["name"], "key_hash": u["key_hash"], "role": u.get("role", "member")}, "name")
+            n_users += 1
+
+    for f in sorted(runs_dir.glob("*.jsonl")) if runs_dir.is_dir() else []:
+        rows = [_json.loads(l) for l in f.read_text(encoding="utf-8").splitlines()]
+        if not rows:
+            continue
+        run_id = f.stem
+        user = rows[0].get("user") or "cli"
+        db.push_run(run_id, rows, bot=rows[0].get("suite") or "", user=user)
+        n_runs += 1
+        n_calls += len(rows)
+        rv = runs_dir / f"{run_id}.review.yaml"
+        if rv.is_file():
+            for entry in yaml.safe_load(rv.read_text(encoding="utf-8")) or []:
+                if not isinstance(entry, dict) or not all(entry.get(k) for k in ("scenario", "reviewer", "verdict")):
+                    continue  # file review định dạng cũ của luồng judge đã xoá
+                db.save_review(
+                    {
+                        "run_id": run_id,
+                        "scenario": entry["scenario"],
+                        "call": str(entry.get("call") or "1/1"),
+                        "reviewer": entry["reviewer"],
+                        "verdict": entry["verdict"] if entry["verdict"] in ("ok", "issue", "warn") else "warn",
+                        "anchor": str(entry.get("anchor") or ""),
+                        "note": str(entry.get("note") or "")[:1000],
+                    }
+                )
+                n_rev += 1
+
+    print(f"Đã đẩy lên Supabase: {n_bots} bot · {n_scn} kịch bản · {n_sit} tình huống · "
+          f"{n_runs} run ({n_calls} call) · {n_rev} review")
+    return 0
+
+
 def _ui_main(args) -> int:
     try:
         import uvicorn
@@ -123,6 +212,7 @@ def _ui_main(args) -> int:
     except ImportError as exc:
         print(f"Thiếu extras UI: pip install -e '.[ui]' ({exc})")
         return 2
+    load_dotenv()
     uvicorn.run(
         create_app(bots_dir=args.bots_dir, runs_dir=args.runs_dir, config_path=args.config),
         host=args.host,
@@ -135,6 +225,8 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "ui":
         return _ui_main(args)
+    if args.command == "db-migrate":
+        return _db_migrate_main(args)
     return _run_main(args)
 
 

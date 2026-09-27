@@ -8,6 +8,18 @@
 
 > Ai giữ: owner + 1 backup person. Mọi lệnh chạy trên VPS, trong thư mục repo.
 
+## Supabase (backend dữ liệu)
+
+- Dữ liệu sống trong project Supabase `auto-qa` (bảng `aq_*`, schema ở
+  `supabase/migrations/` — đổi schema: sửa migration + `supabase db push`).
+- Bật ở đâu: điền `SUPABASE_URL` + `SUPABASE_SERVICE_KEY` vào `.env` của máy/VPS.
+  Không điền → chế độ file (local dev không cần mạng).
+- Chuyển dữ liệu file → DB: `python -m autoqa db-migrate` (idempotent, chạy lại không nhân bản).
+- Service key là quyền FULL — chỉ đặt trong `.env` của server, không bao giờ đưa cho người dùng
+  (người dùng nhận API key riêng từ tab Admin).
+- Khôi phục sau sự cố: Supabase có backup theo gói; thêm nữa thì export định kỳ
+  (`aq_calls`/`aq_reviews` là dữ liệu quý).
+
 ## Deploy lần đầu
 
 ```bash

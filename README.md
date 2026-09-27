@@ -23,6 +23,12 @@ AUTOQA_UI_KEY=... python -m autoqa ui --host 0.0.0.0   # có auth khi expose
 Màn hình: Chạy test (chọn bot + kịch bản) · Lịch sử (tra conversation ID từ
 `runs/INDEX.md`, xem transcript từng run) · Bot (đọc rubric `knowledge/business.md`).
 
+## Dữ liệu — Supabase
+
+Dữ liệu (runs, review, users, knowledge, kịch bản) lưu trong Supabase khi cấu hình
+`SUPABASE_URL`/`SUPABASE_SERVICE_KEY` (schema `supabase/migrations/`). Chưa cấu hình
+thì chạy theo file như cũ. Migrate dữ liệu cũ: `python -m autoqa db-migrate`.
+
 ## Deploy VPS (Docker)
 
 ```bash

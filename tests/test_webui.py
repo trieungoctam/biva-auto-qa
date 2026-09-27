@@ -6,6 +6,7 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
+from autoqa.db import Db, FakeDb
 from autoqa.webui import create_app
 
 
@@ -50,6 +51,7 @@ def client(project, monkeypatch):
         config_path=project / "config.yaml",
         users_file=project / "users.yaml",
         schedules_file=project / "schedules.yaml",
+        db=Db(url="", key=""),  # file mode — không dính env SUPABASE của máy
     )
     with TestClient(app) as c:
         app.state.admin_key = "admin-key-xyz"

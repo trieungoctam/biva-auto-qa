@@ -120,3 +120,68 @@ class UserStore:
     def listing(self) -> list[dict]:
         """Danh sách không chứa hash."""
         return [{"name": u["name"], "role": u["role"]} for u in self._users]
+
+
+class DbUserStore:
+    """UserStore trên Supabase (bảng aq_users) — cùng interface, bật khi có env SUPABASE."""
+
+    def __init__(self, db) -> None:
+        self.db = db
+
+    @property
+    def empty(self) -> bool:
+        return not self.select_all()
+
+    def select_all(self) -> list[dict]:
+        return self.db.maybe(self.db.select, "aq_users", order="name.asc") or []
+
+    def reload(self) -> None:  # tương thích interface file store
+        return None
+
+    def bootstrap(self) -> None:
+        key = os.environ.get("AUTOQA_ADMIN_KEY", "")
+        if key and self.empty:
+            self.db.upsert("aq_users", {"name": "admin", "key_hash": _hash(key), "role": "admin"}, "name")
+
+    def verify(self, key: str) -> tuple[str, str] | None:
+        if not key:
+            return None
+        rows = self.db.maybe(self.db.select, "aq_users", {"key_hash": f"eq.{_hash(key)}"}) or []
+        return (rows[0]["name"], rows[0]["role"]) if rows else None
+
+    def _find(self, name: str) -> dict | None:
+        rows = self.db.maybe(self.db.select, "aq_users", {"name": f"eq.{name}"}) or []
+        return rows[0] if rows else None
+
+    def add(self, name: str, role: str = "member") -> str:
+        if not NAME_RE.match(name or ""):
+            raise UsersError(f"tên {name!r} không hợp lệ (a-z0-9 và . _ -, 2-32 ký tự)")
+        if role not in ROLES:
+            raise UsersError(f"vai trò {role!r} không hợp lệ (chọn {ROLES})")
+        if self._find(name):
+            raise UsersError(f"đã có người tên {name!r}")
+        key = secrets.token_urlsafe(18)
+        self.db.upsert("aq_users", {"name": name, "key_hash": _hash(key), "role": role}, "name")
+        return key
+
+    def rotate(self, name: str) -> str:
+        if not self._find(name):
+            raise UsersError(f"không có người tên {name!r}")
+        key = secrets.token_urlsafe(18)
+        self.db.update("aq_users", {"name": f"eq.{name}"}, {"key_hash": _hash(key)})
+        return key
+
+    def set_role(self, name: str, role: str) -> None:
+        if role not in ROLES:
+            raise UsersError(f"vai trò {role!r} không hợp lệ (chọn {ROLES})")
+        if not self._find(name):
+            raise UsersError(f"không có người tên {name!r}")
+        self.db.update("aq_users", {"name": f"eq.{name}"}, {"role": role})
+
+    def delete(self, name: str) -> None:
+        if not self._find(name):
+            raise UsersError(f"không có người tên {name!r}")
+        self.db.delete("aq_users", {"name": f"eq.{name}"})
+
+    def listing(self) -> list[dict]:
+        return [{"name": u["name"], "role": u["role"]} for u in self.select_all()]

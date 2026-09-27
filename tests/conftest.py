@@ -8,6 +8,12 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+@pytest.fixture(autouse=True)
+def _no_supabase(monkeypatch):
+    """Test không bao giờ đụng Supabase thật (đề phòng .env máy có key)."""
+    monkeypatch.setenv("SUPABASE_URL", "")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "")
+
 @pytest.fixture
 def yaml_file(tmp_path: Path):
     """Factory ghi dict ra file YAML trong tmp, trả về path."""
